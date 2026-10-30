@@ -1,12 +1,13 @@
 # 배포 임팩트 대시보드 (GA4 × GitHub Releases)
 
-GitHub Releases의 배포일을 기준으로 GA4 주요 지표의 **배포 전 N일 vs 배포 후 N일** 변화를 매일 자동 집계해 Cloudflare Pages(+ Access)로 보여줍니다.
+GitHub Releases의 배포일을 기준으로 GA4 주요 지표의 **배포 전 N일 vs 배포 후 N일** 변화를 매일 자동 집계해 Vercel에 올립니다. 회사 Google 계정(@rsupport.com)으로 로그인해야만 볼 수 있습니다.
 
 ```
 GitHub Actions (매일 09:00 KST · 수동 · 릴리스 발행 시)
   ├─ GitHub Releases API  → 배포일 목록
   ├─ GA4 Data API (1회 호출, 일별) → 배포별 전/후 집계
-  └─ site/data.json 생성 → Cloudflare Pages 배포 (Access로 사내만 접근)
+  └─ site/data.json 생성 → Vercel 배포
+Vercel middleware.js → Google 로그인 + @rsupport.com 계정만 통과
 ```
 
 ## 집계 방식
@@ -25,29 +26,52 @@ GitHub Actions (매일 09:00 KST · 수동 · 릴리스 발행 시)
 3. GA4 **관리 → 속성 액세스 관리**에 서비스 계정 이메일을 **뷰어**로 추가합니다.
 4. GA4 **관리 → 속성 세부정보**에서 속성 ID(숫자)를 확인합니다.
 
-### 2. Cloudflare Pages + Access
-1. Cloudflare 대시보드 **Workers & Pages → Create → Pages → Direct Upload**로 프로젝트를 만듭니다. 이름은 예: `ga4-release-dashboard`.
-2. **My Profile → API Tokens**에서 `Cloudflare Pages: Edit` 권한 토큰을 발급합니다.
-3. 계정 ID는 대시보드 우측 사이드바에서 확인합니다.
-4. **Zero Trust → Access → Applications → Add (Self-hosted)**
-   - Domain: `ga4-release-dashboard.pages.dev`. `*.ga4-release-dashboard.pages.dev`도 추가해서 미리보기 URL까지 보호합니다.
-   - Policy: Allow · Include · Emails ending in `@rsupport.com`
-   - 또는 Pages 프로젝트 **Settings → General → Access policy → Enable**을 켜면 미리보기 URL이 자동으로 보호됩니다. 프로덕션 도메인은 위 Application 설정이 따로 필요합니다.
+### 2. Vercel 프로젝트 연결
+터미널에서 이 저장소 폴더로 이동해 실행합니다.
 
-### 3. 이 저장소 설정 (Settings → Secrets and variables → Actions)
+```bash
+npx vercel link        # 로그인 → 팀(Scope) 선택 → 새 프로젝트 이름 입력 (예: ga4-release-dashboard)
+cat .vercel/project.json   # orgId, projectId 확인
+```
+
+- `vercel.json`에서 Git 자동 배포를 꺼 두었습니다. 배포는 GitHub Actions만 합니다.
+- Vercel **Account Settings → Tokens**에서 토큰을 발급합니다. Scope는 위에서 고른 팀으로 합니다.
+- `.vercel/` 폴더는 커밋하지 않습니다.
+
+### 3. 회사 Google 로그인 (GCP OAuth 클라이언트)
+1. GCP 콘솔 **API 및 서비스 → OAuth 동의 화면**에서 사용자 유형 **내부(Internal)**를 고르고 앱 이름을 입력합니다.
+2. **사용자 인증 정보 → 만들기 → OAuth 클라이언트 ID → 웹 애플리케이션**을 선택합니다.
+   - 승인된 리디렉션 URI: `https://<프로젝트명>.vercel.app/auth/callback`
+   - 커스텀 도메인을 붙이면 그 주소의 `/auth/callback`도 추가합니다.
+3. Vercel 프로젝트 **Settings → Environment Variables**(Production)에 아래를 등록합니다.
+
+| 이름 | 값 |
+|---|---|
+| `GOOGLE_CLIENT_ID` | OAuth 클라이언트 ID |
+| `GOOGLE_CLIENT_SECRET` | OAuth 클라이언트 보안 비밀번호 |
+| `AUTH_SECRET` | 임의 문자열 32자 이상 (`openssl rand -base64 32`) |
+| `ALLOWED_DOMAIN` | (선택) 기본 `rsupport.com` |
+
+로그인 동작:
+- 비로그인 상태로 접속하면 Google 로그인 화면으로 이동합니다.
+- `@rsupport.com` 계정만 통과하고, 세션은 7일간 유지됩니다.
+- 개인 Gmail이나 다른 도메인은 403으로 막힙니다.
+- 로그아웃 주소: `/auth/logout`
+
+### 4. 이 저장소 설정 (Settings → Secrets and variables → Actions)
 
 | 종류 | 이름 | 값 |
 |---|---|---|
 | Secret | `GA4_SA_KEY` | 서비스 계정 JSON **전체 내용** |
 | Secret | `GA4_PROPERTY_ID` | GA4 속성 ID (숫자) |
-| Secret | `CLOUDFLARE_API_TOKEN` | Cloudflare API 토큰 |
-| Secret | `CLOUDFLARE_ACCOUNT_ID` | Cloudflare 계정 ID |
+| Secret | `VERCEL_TOKEN` | Vercel 토큰 |
+| Secret | `VERCEL_ORG_ID` | `.vercel/project.json`의 `orgId` |
+| Secret | `VERCEL_PROJECT_ID` | `.vercel/project.json`의 `projectId` |
 | Secret | `RELEASES_TOKEN` | (릴리스 저장소가 private이고 이 저장소와 다를 때) Fine-grained PAT, 대상 저장소 **Contents: Read** |
 | Variable | `RELEASE_REPOS` | 릴리스를 읽을 저장소. 예: `rsupport/service-web,rsupport/service-app` |
-| Variable | `CF_PAGES_PROJECT` | (선택) Pages 프로젝트 이름. 기본 `ga4-release-dashboard` |
 | Variable | `WINDOW_DAYS` | (선택) 비교 일수. 기본 `7` |
 
-### 4. 첫 실행
+### 5. 첫 실행
 **Actions → Update GA4 release dashboard → Run workflow**를 실행합니다.
 
 ## (선택) 릴리스 발행 즉시 갱신

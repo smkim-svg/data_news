@@ -4,3 +4,5 @@ site/data.json
 sa.json
 __pycache__/
 .venv/
+.vercel/
+node_modules/

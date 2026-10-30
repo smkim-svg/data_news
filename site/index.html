@@ -61,6 +61,7 @@
       <h1>배포 임팩트 대시보드<span id="demo" class="demo" hidden>데모 데이터</span></h1>
       <div class="sub" id="meta">불러오는 중…</div>
     </div>
+    <div class="sub" id="user"></div>
   </header>
 
   <section class="card" id="latest-card" hidden>
@@ -176,6 +177,11 @@ function renderTable() {
   $("table").innerHTML = `<thead>${head}</thead><tbody>${body}</tbody>`;
   $("method").textContent = `배포 전 ${DATA.windowDays}일(배포일 제외) vs 배포일 포함 후 ${DATA.windowDays}일 비교. 합계 지표는 일평균, 비율 지표는 세션 가중 평균입니다. 배포 간격이 ${DATA.windowDays}일보다 짧으면 기간이 겹칩니다.`;
 }
+
+fetch("/auth/me", { cache: "no-store" })
+  .then((r) => (r.ok ? r.json() : null))
+  .then((u) => { if (u) $("user").innerHTML = `${u.email} · <a href="/auth/logout" style="color:inherit">로그아웃</a>`; })
+  .catch(() => {});
 
 fetch("data.json", { cache: "no-store" })
   .then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); })
