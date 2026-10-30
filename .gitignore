@@ -1,0 +1,6 @@
+# 실제 지표 데이터는 저장소에 커밋하지 않음 (Actions 에서 생성 후 바로 배포)
+site/data.json
+*.json.key
+sa.json
+__pycache__/
+.venv/

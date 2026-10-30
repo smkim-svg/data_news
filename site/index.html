@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>배포 임팩트 대시보드</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #f7f7f5; --surface: #ffffff; --text: #1f1f1d; --muted: #6b6b66; --line: #e4e3df;
+    --accent: #2f6fde; --up: #18794e; --down: #c4321f; --up-bg: #e6f4ec; --down-bg: #fbe9e6;
+    --release: #b8860b; --badge: #efeee9;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #161615; --surface: #1f1f1d; --text: #ededea; --muted: #9d9d97; --line: #33332f;
+      --accent: #6d9cf0; --up: #4cc38a; --down: #f2735f; --up-bg: #183527; --down-bg: #3a1c17;
+      --release: #e0b448; --badge: #2b2b28;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Pretendard", "Noto Sans KR", sans-serif; }
+  main { max-width: 1160px; margin: 0 auto; padding: 32px 16px 64px; }
+  header { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: end; gap: 12px; margin-bottom: 24px; }
+  h1 { font-size: 22px; margin: 0 0 4px; letter-spacing: -0.01em; }
+  .sub { color: var(--muted); font-size: 13px; }
+  .demo { display: inline-block; margin-left: 8px; padding: 1px 8px; border-radius: 99px; background: var(--down-bg); color: var(--down); font-size: 12px; }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 20px; margin-bottom: 20px; }
+  .card h2 { font-size: 15px; margin: 0 0 14px; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+  select { font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; }
+  .chart-wrap { position: relative; height: 320px; }
+  .latest { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+  .tile { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+  .tile .k { color: var(--muted); font-size: 12px; }
+  .tile .v { font-size: 20px; font-weight: 600; margin-top: 2px; font-variant-numeric: tabular-nums; }
+  .table-scroll { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  th, td { padding: 9px 10px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; }
+  th:first-child, td:first-child { text-align: left; position: sticky; left: 0; background: var(--surface); }
+  td .ver { font-weight: 600; }
+  td .ver a { color: inherit; text-decoration: none; }
+  td .ver a:hover { text-decoration: underline; }
+  td .t { color: var(--muted); font-size: 12px; max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+  .delta { display: inline-block; min-width: 64px; padding: 2px 8px; border-radius: 6px; font-weight: 600; font-size: 13px; }
+  .delta.up { color: var(--up); background: var(--up-bg); }
+  .delta.down { color: var(--down); background: var(--down-bg); }
+  .delta.flat { color: var(--muted); }
+  .ba { display: block; color: var(--muted); font-size: 11px; margin-top: 2px; }
+  .badge { display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 99px; background: var(--badge); color: var(--muted); font-size: 11px; font-weight: 500; }
+  .note { color: var(--muted); font-size: 12px; margin-top: 12px; }
+  .error { color: var(--down); }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div>
+      <h1>배포 임팩트 대시보드<span id="demo" class="demo" hidden>데모 데이터</span></h1>
+      <div class="sub" id="meta">불러오는 중…</div>
+    </div>
+  </header>
+
+  <section class="card" id="latest-card" hidden>
+    <h2 id="latest-title">최근 배포</h2>
+    <div class="latest" id="latest"></div>
+  </section>
+
+  <section class="card">
+    <div class="row">
+      <h2 style="margin:0">일별 추이</h2>
+      <select id="metric" aria-label="지표 선택"></select>
+    </div>
+    <div class="chart-wrap"><canvas id="chart"></canvas></div>
+    <div class="note">점선은 배포일입니다.</div>
+  </section>
+
+  <section class="card">
+    <h2>배포별 전후 비교</h2>
+    <div class="table-scroll"><table id="table"></table></div>
+    <div class="note" id="method"></div>
+  </section>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+
+function fmt(v, kind) {
+  if (v == null || Number.isNaN(v)) return "–";
+  if (kind === "pct") return (v * 100).toFixed(1) + "%";
+  if (kind === "sec") { const m = Math.floor(v / 60), s = Math.round(v % 60); return `${m}분 ${String(s).padStart(2, "0")}초`; }
+  return Math.round(v).toLocaleString("ko-KR");
+}
+function deltaHtml(d) {
+  if (d == null) return '<span class="delta flat">–</span>';
+  const cls = Math.abs(d) < 1 ? "flat" : d > 0 ? "up" : "down";
+  const arrow = cls === "up" ? "▲" : cls === "down" ? "▼" : "";
+  return `<span class="delta ${cls}">${arrow} ${Math.abs(d).toFixed(1)}%</span>`;
+}
+
+let chart, DATA;
+
+function drawChart(metric) {
+  const meta = DATA.metrics[metric];
+  const labels = DATA.daily.map((d) => d.date);
+  const values = DATA.daily.map((d) => d[metric]);
+  const releaseIdx = DATA.releases
+    .map((r) => ({ i: labels.indexOf(r.date), v: r.version }))
+    .filter((r) => r.i >= 0);
+
+  const releaseLines = {
+    id: "releaseLines",
+    afterDatasetsDraw(c) {
+      const { ctx, chartArea: a, scales: { x } } = c;
+      ctx.save();
+      ctx.strokeStyle = css("--release"); ctx.fillStyle = css("--release");
+      ctx.setLineDash([4, 4]); ctx.lineWidth = 1.2;
+      ctx.font = "11px sans-serif"; ctx.textAlign = "left";
+      releaseIdx.forEach((r) => {
+        const px = x.getPixelForValue(r.i);
+        ctx.beginPath(); ctx.moveTo(px, a.top); ctx.lineTo(px, a.bottom); ctx.stroke();
+        const w = ctx.measureText(r.v).width;
+        if (px + 4 + w > a.right) { ctx.textAlign = "right"; ctx.fillText(r.v, px - 4, a.top + 10); ctx.textAlign = "left"; }
+        else ctx.fillText(r.v, px + 4, a.top + 10);
+      });
+      ctx.restore();
+    },
+  };
+
+  if (chart) chart.destroy();
+  chart = new Chart($("chart"), {
+    type: "line",
+    data: { labels, datasets: [{ data: values, borderColor: css("--accent"), borderWidth: 2, pointRadius: 0, tension: 0.25 }] },
+    options: {
+      maintainAspectRatio: false,
+      interaction: { mode: "index", intersect: false },
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: {
+          label: (c) => `${meta.label}: ${fmt(c.parsed.y, meta.fmt)}`,
+          afterLabel: (c) => { const r = DATA.releases.filter((r) => r.date === labels[c.dataIndex]); return r.length ? "배포: " + r.map((x) => x.version).join(", ") : ""; },
+        } },
+      },
+      scales: {
+        x: { ticks: { color: css("--muted"), maxTicksLimit: 8, callback: (v) => labels[v].slice(5) }, grid: { display: false } },
+        y: { ticks: { color: css("--muted"), callback: (v) => fmt(v, meta.fmt) }, grid: { color: css("--line") } },
+      },
+    },
+    plugins: [releaseLines],
+  });
+}
+
+function renderLatest() {
+  const r = DATA.releases[0];
+  if (!r) return;
+  $("latest-card").hidden = false;
+  $("latest-title").innerHTML = `최근 배포 · ${r.version} <span class="sub">(${r.date})</span>` +
+    (r.complete ? "" : `<span class="badge">집계 중 ${r.afterDays}/${DATA.windowDays}일</span>`);
+  $("latest").innerHTML = Object.entries(DATA.metrics).map(([k, m]) => `
+    <div class="tile"><div class="k">${m.label}</div>
+      <div class="v">${fmt(r.after[k], m.fmt)}</div>
+      <div>${deltaHtml(r.deltaPct[k])}</div></div>`).join("");
+}
+
+function renderTable() {
+  const keys = Object.keys(DATA.metrics);
+  const head = `<tr><th>배포</th>${keys.map((k) => `<th>${DATA.metrics[k].label}</th>`).join("")}</tr>`;
+  const body = DATA.releases.map((r) => `<tr>
+    <td><div class="ver"><a href="${r.url}" target="_blank" rel="noopener">${r.version}</a>${r.complete ? "" : `<span class="badge">집계 중 ${r.afterDays}/${DATA.windowDays}일</span>`}</div>
+        <div class="t" title="${r.title}">${r.date} · ${r.title}</div></td>
+    ${keys.map((k) => `<td>${deltaHtml(r.deltaPct[k])}<span class="ba">${fmt(r.before[k], DATA.metrics[k].fmt)} → ${fmt(r.after[k], DATA.metrics[k].fmt)}</span></td>`).join("")}
+  </tr>`).join("");
+  $("table").innerHTML = `<thead>${head}</thead><tbody>${body}</tbody>`;
+  $("method").textContent = `배포 전 ${DATA.windowDays}일(배포일 제외) vs 배포일 포함 후 ${DATA.windowDays}일 비교. 합계 지표는 일평균, 비율 지표는 세션 가중 평균입니다. 배포 간격이 ${DATA.windowDays}일보다 짧으면 기간이 겹칩니다.`;
+}
+
+fetch("data.json", { cache: "no-store" })
+  .then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); })
+  .then((data) => {
+    DATA = data;
+    $("demo").hidden = !data.demo;
+    $("meta").textContent = `데이터 기준일 ${data.dataThrough} · 갱신 ${data.updatedAt.replace("T", " ")} · 배포 ${data.releases.length}건`;
+    const sel = $("metric");
+    sel.innerHTML = Object.entries(data.metrics).map(([k, m]) => `<option value="${k}">${m.label}</option>`).join("");
+    sel.onchange = () => drawChart(sel.value);
+    renderLatest(); renderTable(); drawChart(sel.value);
+  })
+  .catch((e) => { $("meta").innerHTML = `<span class="error">data.json 을 불러오지 못했습니다 (${e.message})</span>`; });
+</script>
+</body>
+</html>
