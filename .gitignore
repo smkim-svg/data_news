@@ -1,10 +1,63 @@
-# 실제 지표 데이터는 저장소에 커밋하지 않음 (Actions 에서 생성 후 바로 배포)
+# ── 데이터 산출물 (Actions 에서 생성 후 바로 배포) ──
 site/data.json
-*.json.key
-sa.json
-__pycache__/
-.venv/
+
+# ── 환경 변수 / 비밀값 ──
+.env
+.env.*
+*.env
+!.env.example
 .vercel/
+.secrets/
+secrets/
+*.secret
+*.secrets
+
+# ── 인증키 / 인증서 ──
+sa.json
+*service-account*.json
+*credentials*.json
+client_secret*.json
+*.json.key
+*.key
+*.pem
+*.p12
+*.pfx
+*.crt
+*.cer
+*.der
+*.jks
+*.keystore
+id_rsa*
+id_ed25519*
+*.ppk
+.npmrc
+.pypirc
+.netrc
+token.txt
+*token*.txt
+
+# ── 개인정보 / 원본 데이터 내보내기 ──
+*.csv
+*.xlsx
+*.xls
+*.sqlite
+*.sqlite3
+*.db
+*.dump
+*.sql.gz
+exports/
+personal/
+private/
+
+# ── Claude 개인 설정 (팀 공유용 settings.json 은 커밋) ──
+.claude/settings.local.json
+.claude/*.log
+
+# ── 빌드 / 캐시 / OS ──
 node_modules/
-.vercel
-.env*
+__pycache__/
+*.pyc
+.venv/
+venv/
+.DS_Store
+*.log
