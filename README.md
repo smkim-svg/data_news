@@ -117,4 +117,3 @@ python scripts/fetch_ga4.py
 - `fmt`: `int` · `pct` · `sec`
 
 화면은 자동으로 따라 바뀝니다.
-자동 커밋 테스트
