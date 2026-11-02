@@ -5,7 +5,7 @@
   RELEASE_REPOS     릴리스를 읽을 저장소, 쉼표 구분 (owner/repo)  [필수]
   RELEASES_TOKEN    릴리스 조회용 GitHub 토큰 (없으면 GITHUB_TOKEN)
   WINDOW_DAYS       전/후 비교 일수 (기본 7)
-  LOOKBACK_DAYS     차트에 표시할 최소 기간 (기본 120)
+  LOOKBACK_DAYS     차트용으로 최소한 받아올 기간 (기본 180, 화면의 180일 버튼용)
   TIMEZONE          배포 시각을 날짜로 바꿀 때 쓰는 시간대 (기본 Asia/Seoul)
   INCLUDE_PRERELEASE  1 이면 pre-release 포함 (기본 0)
   GOOGLE_APPLICATION_CREDENTIALS  서비스 계정 JSON 경로
@@ -38,14 +38,45 @@ METRICS = {
 }
 
 WINDOW = int(os.environ.get("WINDOW_DAYS", "7"))
-LOOKBACK = int(os.environ.get("LOOKBACK_DAYS", "120"))
+LOOKBACK = int(os.environ.get("LOOKBACK_DAYS", "180"))
 TZ = ZoneInfo(os.environ.get("TIMEZONE", "Asia/Seoul"))
 DATA_LAG_DAYS = 2  # GA4 데이터 확정 지연
 
 
 # ---------------------------------------------------------------- releases
 def fetch_releases() -> list[dict]:
-    repos = [r.strip() for r in os.environ["RELEASE_REPOS"].split(",") if r.strip()]
+    """releases.json + (설정된 경우) GitHub Releases 를 합쳐 최신순으로 반환."""
+    out = load_manual_releases() + fetch_github_releases()
+    out.sort(key=lambda r: r["date"], reverse=True)
+    return out
+
+
+RELEASES_FILE = os.environ.get(
+    "RELEASES_FILE", os.path.join(os.path.dirname(__file__), "..", "releases.json"))
+
+
+def load_manual_releases() -> list[dict]:
+    """저장소 루트의 releases.json 에 직접 적은 배포일 목록."""
+    if not os.path.exists(RELEASES_FILE):
+        return []
+    with open(RELEASES_FILE, encoding="utf-8") as f:
+        items = json.load(f)
+    out = []
+    for i, it in enumerate(items, 1):
+        try:
+            d = dt.date.fromisoformat(str(it["date"]).strip())
+        except (KeyError, ValueError, TypeError):
+            raise SystemExit(f"releases.json {i}번째 항목의 date 가 YYYY-MM-DD 형식이 아닙니다: {it}")
+        version = str(it.get("version") or it.get("title") or d.isoformat())
+        out.append({"repo": "manual", "version": version, "title": str(it.get("title") or version),
+                    "date": d.isoformat(), "url": it.get("url") or ""})
+    return out
+
+
+def fetch_github_releases() -> list[dict]:
+    repos = [r.strip() for r in os.environ.get("RELEASE_REPOS", "").split(",") if r.strip()]
+    if not repos:
+        return []
     token = os.environ.get("RELEASES_TOKEN") or os.environ.get("GITHUB_TOKEN")
     include_pre = os.environ.get("INCLUDE_PRERELEASE") == "1"
     out = []
@@ -74,7 +105,6 @@ def fetch_releases() -> list[dict]:
                     "url": it.get("html_url"),
                 })
             page += 1
-    out.sort(key=lambda r: r["date"], reverse=True)
     return out
 
 
@@ -174,7 +204,7 @@ def main() -> None:
         out_releases.append({**r, "before": before, "after": after, "deltaPct": delta,
                              "beforeDays": nb, "afterDays": na, "complete": na >= WINDOW})
 
-    chart_start = last_full - dt.timedelta(days=LOOKBACK)
+    chart_start = start  # 최근 LOOKBACK 일 또는 가장 오래된 배포 비교 구간 중 더 이른 날부터 (화면에서 기간 선택)
     series = [{"date": k, **v} for k, v in sorted(daily.items()) if k >= chart_start.isoformat()]
 
     payload = {

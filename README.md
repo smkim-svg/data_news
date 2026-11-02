@@ -18,6 +18,22 @@ Vercel middleware.js → Google 로그인 + @rsupport.com 계정만 통과
 - GA4 데이터 확정 지연을 감안해 **2일 전까지만** 사용합니다. 후 구간이 N일 미만이면 "집계 중"으로 표시됩니다.
 - 실제 데이터(`site/data.json`)는 저장소에 커밋하지 않습니다.
 
+## 배포일 추가하기 (releases.json)
+
+배포할 때마다 저장소 루트의 `releases.json`에 한 줄씩 추가하고 커밋·푸시합니다. 푸시하면 대시보드가 바로 다시 계산됩니다.
+
+```json
+[
+  { "date": "2026-10-28", "version": "v3.2", "title": "결제 화면 개편" },
+  { "date": "2026-10-15", "version": "v3.1", "title": "온보딩 변경" }
+]
+```
+
+- `date`: 필수, `YYYY-MM-DD` 형식 (한국 시간 기준 배포일)
+- `version`, `title`, `url`: 선택
+- 순서는 상관없습니다. 항목 사이에 쉼표를 넣고, 마지막 항목 뒤에는 넣지 않습니다.
+- (선택) GitHub Releases도 함께 쓰려면 `RELEASE_REPOS` 변수를 설정합니다. 두 목록이 합쳐집니다.
+
 ## 설정 (최초 1회)
 
 ### 1. GA4 서비스 계정
@@ -68,7 +84,7 @@ cat .vercel/project.json   # orgId, projectId 확인
 | Secret | `VERCEL_ORG_ID` | `.vercel/project.json`의 `orgId` |
 | Secret | `VERCEL_PROJECT_ID` | `.vercel/project.json`의 `projectId` |
 | Secret | `RELEASES_TOKEN` | (릴리스 저장소가 private이고 이 저장소와 다를 때) Fine-grained PAT, 대상 저장소 **Contents: Read** |
-| Variable | `RELEASE_REPOS` | 릴리스를 읽을 저장소. 예: `rsupport/service-web,rsupport/service-app` |
+| Variable | `RELEASE_REPOS` | (선택) GitHub Releases도 읽을 저장소. 예: `rsupport/service-web,rsupport/service-app` |
 | Variable | `WINDOW_DAYS` | (선택) 비교 일수. 기본 `7` |
 
 ### 5. 첫 실행
@@ -105,8 +121,8 @@ python -m http.server -d site 8000     # http://localhost:8000
 실제 데이터로 확인하려면 다음을 실행합니다.
 
 ```bash
-pip install -r requirements.txt
-export GOOGLE_APPLICATION_CREDENTIALS=~/keys/ga4-sa.json GA4_PROPERTY_ID=123456789 RELEASE_REPOS=owner/repo
+pip install -r scripts/requirements.txt
+export GOOGLE_APPLICATION_CREDENTIALS=~/keys/ga4-sa.json GA4_PROPERTY_ID=123456789
 python scripts/fetch_ga4.py
 ```
 

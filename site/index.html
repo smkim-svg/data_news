@@ -19,6 +19,7 @@
     }
   }
   * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
   body { margin: 0; background: var(--bg); color: var(--text);
     font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Pretendard", "Noto Sans KR", sans-serif; }
   main { max-width: 1160px; margin: 0 auto; padding: 32px 16px 64px; }
@@ -29,6 +30,11 @@
   .card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 20px; margin-bottom: 20px; }
   .card h2 { font-size: 15px; margin: 0 0 14px; }
   .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+  .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .seg button { font: inherit; font-size: 13px; color: var(--muted); background: var(--surface); border: 0; padding: 6px 12px; cursor: pointer; }
+  .seg button + button { border-left: 1px solid var(--line); }
+  .seg button[aria-pressed="true"] { background: var(--accent); color: #fff; }
   select { font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; }
   .chart-wrap { position: relative; height: 320px; }
   .latest { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
@@ -72,7 +78,12 @@
   <section class="card">
     <div class="row">
       <h2 style="margin:0">일별 추이</h2>
-      <select id="metric" aria-label="지표 선택"></select>
+      <div class="controls">
+        <div class="seg" id="range" role="group" aria-label="차트 기간">
+          <button data-days="30">30일</button><button data-days="90" aria-pressed="true">90일</button><button data-days="180">180일</button><button data-days="0">전체</button>
+        </div>
+        <select id="metric" aria-label="지표 선택"></select>
+      </div>
     </div>
     <div class="chart-wrap"><canvas id="chart"></canvas></div>
     <div class="note">점선은 배포일입니다.</div>
@@ -104,10 +115,20 @@ function deltaHtml(d) {
 
 let chart, DATA;
 
+let RANGE = 90; // 기본 90일, 0 = 전체
+function chartRows() {
+  if (!RANGE) return DATA.daily;
+  const end = new Date(DATA.dataThrough + "T00:00:00Z");
+  end.setUTCDate(end.getUTCDate() - RANGE + 1);
+  const from = end.toISOString().slice(0, 10);
+  return DATA.daily.filter((d) => d.date >= from);
+}
+
 function drawChart(metric) {
   const meta = DATA.metrics[metric];
-  const labels = DATA.daily.map((d) => d.date);
-  const values = DATA.daily.map((d) => d[metric]);
+  const rows = chartRows();
+  const labels = rows.map((d) => d.date);
+  const values = rows.map((d) => d[metric]);
   const releaseIdx = DATA.releases
     .map((r) => ({ i: labels.indexOf(r.date), v: r.version }))
     .filter((r) => r.i >= 0);
@@ -170,7 +191,7 @@ function renderTable() {
   const keys = Object.keys(DATA.metrics);
   const head = `<tr><th>배포</th>${keys.map((k) => `<th>${DATA.metrics[k].label}</th>`).join("")}</tr>`;
   const body = DATA.releases.map((r) => `<tr>
-    <td><div class="ver"><a href="${r.url}" target="_blank" rel="noopener">${r.version}</a>${r.complete ? "" : `<span class="badge">집계 중 ${r.afterDays}/${DATA.windowDays}일</span>`}</div>
+    <td><div class="ver">${r.url ? `<a href="${r.url}" target="_blank" rel="noopener">${r.version}</a>` : r.version}${r.complete ? "" : `<span class="badge">집계 중 ${r.afterDays}/${DATA.windowDays}일</span>`}</div>
         <div class="t" title="${r.title}">${r.date} · ${r.title}</div></td>
     ${keys.map((k) => `<td>${deltaHtml(r.deltaPct[k])}<span class="ba">${fmt(r.before[k], DATA.metrics[k].fmt)} → ${fmt(r.after[k], DATA.metrics[k].fmt)}</span></td>`).join("")}
   </tr>`).join("");
@@ -192,6 +213,11 @@ fetch("data.json", { cache: "no-store" })
     const sel = $("metric");
     sel.innerHTML = Object.entries(data.metrics).map(([k, m]) => `<option value="${k}">${m.label}</option>`).join("");
     sel.onchange = () => drawChart(sel.value);
+    document.querySelectorAll("#range button").forEach((b) => b.addEventListener("click", () => {
+      RANGE = Number(b.dataset.days);
+      document.querySelectorAll("#range button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+      drawChart(sel.value);
+    }));
     renderLatest(); renderTable(); drawChart(sel.value);
   })
   .catch((e) => { $("meta").innerHTML = `<span class="error">data.json 을 불러오지 못했습니다 (${e.message})</span>`; });
