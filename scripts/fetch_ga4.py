@@ -3,6 +3,8 @@
 설정 파일 (저장소 루트)
   products.json   제품 목록과 각 제품의 GA4 속성 ID
                   [{"id": "remotemeeting", "name": "리모트미팅", "propertyId": "543595202"}]
+                  - channelGroup(선택): 쓸 "맞춤 채널 그룹" 이름. 비우면 그 속성의 첫 번째 맞춤 채널 그룹,
+                    맞춤 채널 그룹이 없으면 GA4 기본 채널 그룹
   releases.json   배포한 페이지 목록 (페이지 하나당 한 줄)
                   [{"date": "2026-06-30", "product": "remotemeeting", "name": "메인", "path": "/"}]
                   - path   : GA4 의 페이지 경로(pagePath). 전체 URL 을 넣어도 경로만 사용. 여러 개면 배열
@@ -51,7 +53,7 @@ METRICS = {
 # GA4 에서 실제로 받아오는 지표 (최대 10개)
 RAW = ["screenPageViews", "activeUsers", "sessions", "engagementRate", "bounceRate", "userEngagementDuration",
        "keyEvents", "sessionKeyEventRate"]
-CHANNEL_DIM = "sessionDefaultChannelGroup"  # GA4 기본 채널 그룹 (Organic Search, Direct, Paid Search …)
+DEFAULT_CHANNEL_DIM = "sessionDefaultChannelGroup"  # 맞춤 채널 그룹이 없을 때 쓰는 GA4 기본 채널 그룹
 
 LOOKBACK = int(os.environ.get("LOOKBACK_DAYS", "570"))  # 6개월 전년 비교까지 (약 19개월)
 TZ = ZoneInfo(os.environ.get("TIMEZONE", "Asia/Seoul"))
@@ -75,7 +77,8 @@ def load_products() -> list[dict]:
         pid = str(it.get("propertyId") or "").strip()
         if not it.get("id") or not pid.isdigit():
             raise SystemExit(f"products.json {i}번째 항목에 id 또는 숫자 propertyId 가 없습니다: {it}")
-        out.append({"id": str(it["id"]), "name": str(it.get("name") or it["id"]), "propertyId": pid})
+        out.append({"id": str(it["id"]), "name": str(it.get("name") or it["id"]), "propertyId": pid,
+                    "channelGroup": str(it.get("channelGroup") or "").strip()})
     return out
 
 
@@ -148,17 +151,43 @@ def _report(property_id: str, start: dt.date, end: dt.date, paths: list[str], ma
         yield iso, [x.value for x in row.dimension_values[1:]], {n: float(v.value or 0) for n, v in zip(RAW, row.metric_values)}
 
 
-def fetch_daily(property_id: str, start: dt.date, end: dt.date, paths: list[str], match: str) -> tuple[dict, dict]:
+_CHANNEL_DIM_CACHE: dict[str, tuple[str, str]] = {}
+
+
+def channel_dimension(property_id: str, wanted: str = "") -> tuple[str, str]:
+    """속성의 '세션 맞춤 채널 그룹' 측정기준을 찾는다 → (API 이름, 화면 이름)."""
+    if property_id in _CHANNEL_DIM_CACHE:
+        return _CHANNEL_DIM_CACHE[property_id]
+    from google.analytics.data_v1beta import BetaAnalyticsDataClient
+    found = ("", "")
+    try:
+        md = BetaAnalyticsDataClient().get_metadata(name=f"properties/{property_id}/metadata")
+        groups = [(d.api_name, d.ui_name) for d in md.dimensions if d.api_name.startswith("sessionCustomChannelGroup:")]
+        if wanted:
+            groups = [g for g in groups if wanted.lower() in g[1].lower()] or groups
+        if groups:
+            found = groups[0]
+    except Exception as e:
+        print(f"[경고] 속성 {property_id} 맞춤 채널 그룹 조회 실패: {str(e).splitlines()[0][:200]}", file=sys.stderr)
+    if not found[0]:
+        print(f"[안내] 속성 {property_id}: 맞춤 채널 그룹이 없어 기본 채널 그룹을 씁니다.", file=sys.stderr)
+        found = (DEFAULT_CHANNEL_DIM, "기본 채널 그룹")
+    _CHANNEL_DIM_CACHE[property_id] = found
+    return found
+
+
+def fetch_daily(property_id: str, start: dt.date, end: dt.date, paths: list[str], match: str,
+                channel_dim: str) -> tuple[dict, dict]:
     """(전체 일별, 채널별 일별) — {날짜: {지표: 값}}, {채널: {날짜: {지표: 값}}}"""
     total = {iso: vals for iso, _, vals in _report(property_id, start, end, paths, match, ["date"])}
     channels: dict[str, dict] = {}
-    for iso, (ch,), vals in _report(property_id, start, end, paths, match, ["date", CHANNEL_DIM]):
+    for iso, (ch,), vals in _report(property_id, start, end, paths, match, ["date", channel_dim]):
         channels.setdefault(ch or "(not set)", {})[iso] = vals
     return total, channels
 
 
-DEMO_CHANNELS = {"Organic Search": 0.44, "Direct": 0.24, "Paid Search": 0.13, "Referral": 0.08,
-                 "Organic Social": 0.05, "Email": 0.03, "Unassigned": 0.03}
+DEMO_CHANNELS = {"검색(SEO)": 0.38, "직접 유입": 0.22, "검색광고": 0.14, "디스플레이 광고": 0.08, "파트너 사이트": 0.07,
+                 "블로그·커뮤니티": 0.05, "뉴스레터": 0.03, "SNS 광고": 0.02, "기타": 0.01}
 
 
 def demo_daily(start: dt.date, end: dt.date, launch: dt.date, seed: int, new_page: bool) -> tuple[dict, dict]:
@@ -175,10 +204,10 @@ def demo_daily(start: dt.date, end: dt.date, launch: dt.date, seed: int, new_pag
             k = (lift if d >= launch else 1.0) * season * (0.75 if d.weekday() >= 5 else 1.0) * rnd.uniform(0.9, 1.1)
             day = {n: 0.0 for n in RAW}
             for ch, share in DEMO_CHANNELS.items():
-                q = k * rnd.uniform(0.8, 1.2) * (1.1 if ch == "Paid Search" and d >= launch else 1.0)
+                q = k * rnd.uniform(0.8, 1.2) * (1.1 if ch == "검색광고" and d >= launch else 1.0)
                 users = base * share * q
                 sessions = users * 1.2
-                er = min(0.95, (0.65 if ch in ("Direct", "Email") else 0.5) * q ** 0.2)
+                er = min(0.95, (0.65 if ch in ("직접 유입", "뉴스레터") else 0.5) * q ** 0.2)
                 v = {"screenPageViews": round(users * 1.6), "activeUsers": round(users), "sessions": round(sessions),
                      "engagementRate": er, "bounceRate": 1 - er, "userEngagementDuration": users * 70 * q ** 0.5,
                      "keyEvents": round(sessions * 0.03 * q), "sessionKeyEventRate": min(1, 0.025 * q)}
@@ -211,8 +240,12 @@ def build_page(product: dict, page: dict, last_full: dt.date, demo: bool) -> dic
     key = f"{page['date']}|{page['name']}|{'+'.join(page['paths'])}"
     base = {**page, "key": key}
     try:
-        total, channels = (demo_daily(start, last_full, launch, zlib.crc32(key.encode()), new_page="new" in page["note"])
-                           if demo else fetch_daily(product["propertyId"], start, last_full, page["paths"], page["match"]))
+        if demo:
+            group = "맞춤 채널 그룹 (데모)"
+            total, channels = demo_daily(start, last_full, launch, zlib.crc32(key.encode()), new_page="new" in page["note"])
+        else:
+            dim, group = channel_dimension(product["propertyId"], product.get("channelGroup", ""))
+            total, channels = fetch_daily(product["propertyId"], start, last_full, page["paths"], page["match"], dim)
     except Exception as e:  # 권한 누락이 가장 흔한 원인
         msg = str(e).splitlines()[0][:300]
         print(f"[경고] {product['name']} / {page['name']}: {msg}", file=sys.stderr)
@@ -227,7 +260,7 @@ def build_page(product: dict, page: dict, last_full: dt.date, demo: bool) -> dic
         rows = [pack(days[d]) if d in days else 0 for d in dates]
         if any(rows):
             by_ch[ch] = rows
-    return {**base, "daily": daily, "channels": by_ch}
+    return {**base, "daily": daily, "channels": by_ch, "channelGroup": group}
 
 
 def main() -> None:
@@ -255,7 +288,7 @@ def main() -> None:
                              "pages": [build_page(p, x, last_full, demo) for x in mine]})
 
     payload = {
-        "version": 4,
+        "version": 5,
         "updatedAt": dt.datetime.now(TZ).isoformat(timespec="minutes"),
         "dataThrough": last_full.isoformat(),
         "raw": RAW,

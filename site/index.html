@@ -10,14 +10,16 @@
     color-scheme: light;
     --bg: #f6f6f4; --surface: #ffffff; --surface-2: #fafaf8; --text: #1f1f1d; --muted: #6b6b66; --line: #e4e3df;
     --accent: #2f6fde; --accent-soft: #eaf1fd; --up: #18794e; --down: #c4321f; --up-bg: #e6f4ec; --down-bg: #fbe9e6;
-    --release: #b8860b; --badge: #efeee9; --cmp: #9a9a93;
+    --release: #b8860b; --badge: #efeee9; --cmp: #9a9a93; --all: #1f1f1d;
+    --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100; --s5: #e87ba4; --s6: #008300; --s7: #6250d6; --s8: #e34948;
   }
   @media (prefers-color-scheme: dark) {
     :root {
       color-scheme: dark;
       --bg: #141413; --surface: #1e1e1c; --surface-2: #232321; --text: #ededea; --muted: #9d9d97; --line: #33332f;
       --accent: #6d9cf0; --accent-soft: #1f2a3d; --up: #4cc38a; --down: #f2735f; --up-bg: #183527; --down-bg: #3a1c17;
-      --release: #e0b448; --badge: #2b2b28; --cmp: #85857f;
+      --release: #e0b448; --badge: #2b2b28; --cmp: #85857f; --all: #ededea;
+      --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #d55181; --s6: #008300; --s7: #9085e9; --s8: #e66767;
     }
   }
   * { box-sizing: border-box; }
@@ -83,11 +85,31 @@
   .compare .vs { margin: 0 4px; font-weight: 600; }
 
   .kpis { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 12px; }
-  .tile { display: block; width: 100%; text-align: left; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; cursor: pointer; }
-  .tile > span { display: block; }
+  .kpis { align-items: start; }
+  .tile { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  .tile-main { display: block; width: 100%; text-align: left; background: none; border: 0; padding: 12px 14px 10px; cursor: pointer; }
+  .tile-main > span { display: block; }
   .tile:hover { border-color: var(--muted); }
+  .tile-ch { border-top: 1px solid var(--line); }
+  .tile-ch summary { list-style: none; cursor: pointer; padding: 6px 14px; font-size: 12px; color: var(--muted); display: flex; justify-content: space-between; align-items: center; }
+  .tile-ch summary::-webkit-details-marker { display: none; }
+  .tile-ch summary::after { content: "▾"; font-size: 11px; transition: transform .15s; }
+  .tile-ch[open] summary::after { transform: rotate(180deg); }
+  .tile-ch summary:hover { color: var(--text); background: var(--surface-2); }
+  .tile-ch ul { list-style: none; margin: 0; padding: 2px 14px 10px; }
+  .tile-ch li { display: grid; grid-template-columns: 10px 1fr auto auto; gap: 6px; align-items: center; font-size: 12px; padding: 3px 0; font-variant-numeric: tabular-nums; }
+  .tile-ch li .n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tile-ch li .delta { font-size: 11px; padding: 0 5px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 10px; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); background: var(--surface); color: var(--muted); border-radius: 99px; padding: 4px 11px 4px 9px; font-size: 12px; cursor: pointer; }
+  .chip .dot { opacity: .35; }
+  .chip[aria-pressed="true"] { color: var(--text); border-color: currentColor; background: var(--surface-2); font-weight: 600; }
+  .chip[aria-pressed="true"] .dot { opacity: 1; }
+  .chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .linkbtn { background: none; border: 0; padding: 0; color: var(--accent); cursor: pointer; font-size: 12px; }
   .tile[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
-  .tile:focus-visible, .ch tbody tr:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .tile-main:focus-visible, .ch tbody tr:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .tile .k { color: var(--muted); font-size: 12px; }
   .tile .hint { font-size: 10px; background: var(--badge); border-radius: 4px; padding: 0 4px; margin-left: 2px; }
   .tile .v { font-size: 22px; font-weight: 650; margin: 2px 0 4px; font-variant-numeric: tabular-nums; }
@@ -178,7 +200,7 @@
 
       <div id="kpi-error" class="error" hidden></div>
       <div class="kpis" id="kpis"></div>
-      <div class="note" id="kpi-note"></div>
+      <div class="note"><span id="kpi-note"></span> <button class="linkbtn" id="fold-all"></button></div>
     </section>
 
     <section class="card" id="chart-card">
@@ -189,6 +211,7 @@
         </div>
         <select id="metric" aria-label="지표 선택"></select>
       </div>
+      <div class="chips" id="chips" role="group" aria-label="차트에 표시할 채널"></div>
       <div class="legend">
         <span><i class="sw sw-cur"></i><span id="lg-cur">선택 기간</span></span>
         <span><i class="sw sw-cmp"></i><span id="lg-cmp">비교 기간</span></span>
@@ -199,10 +222,10 @@
 
       <div class="ch-head">
         <h3 id="ch-title">채널별</h3>
-        <span class="sub">행을 누르면 위 차트가 그 채널로 바뀌어요</span>
+        <span class="sub" id="ch-group"></span>
       </div>
       <div class="table-scroll"><table class="ch" id="ch-table"></table></div>
-      <div class="note">채널은 GA4 기본 채널 그룹 기준이에요. 한 사람이 여러 채널로 들어올 수 있어서 채널별 사용자 합은 전체보다 클 수 있어요.</div>
+      <div class="note">행을 누르면 위 차트에서 그 채널을 켜고 끌 수 있어요. 한 사람이 여러 채널로 들어올 수 있어서 채널별 사용자 합은 전체보다 클 수 있어요.</div>
     </section>
   </main>
 </div>
@@ -256,7 +279,8 @@ function deltaHtml(c, key) {
 let DATA, IDX, P, SEL, chart;
 let PERIOD = { unit: "w1", start: null };   // unit+start 또는 { unit: null, from, to } (직접 선택)
 let MODE = "prev";                          // prev: 이전 기간 대비, yoy: 전년 같은 기간 대비
-let CH = null;                              // 차트에 보여줄 채널 (null = 전체)
+let ON = new Set(["__all"]);                // 차트에 켜 둔 계열 (__all = 전체, 채널 이름, __other = 그 외)
+const OPEN = new Set();                     // 채널별을 펼친 카드
 let METRIC = PRIMARY;
 const ZERO = () => new Array(DATA.raw.length).fill(0);
 const seriesCache = new Map();
@@ -266,6 +290,44 @@ function series(page, ch) {
   const k = page.key + "§" + ch;
   if (!seriesCache.has(k)) seriesCache.set(k, page.daily.map((r, i) => [r[0], ...((page.channels[ch] || [])[i] || ZERO())]));
   return seriesCache.get(k);
+}
+const RATES = ["engagementRate", "bounceRate", "sessionKeyEventRate"];
+/** 여러 채널을 하루 단위로 합침 (합계는 더하고, 비율은 세션 가중 평균) */
+function combine(list) {
+  const base = list[0];
+  return base.map((r, i) => {
+    const out = [r[0], ...ZERO()];
+    list.forEach((rows) => DATA.raw.forEach((k, j) => {
+      const v = rows[i][j + 1];
+      out[j + 1] += RATES.includes(k) ? v * rows[i][IDX.sessions] : v;
+    }));
+    RATES.forEach((k) => { out[IDX[k]] = out[IDX.sessions] ? out[IDX[k]] / out[IDX.sessions] : 0; });
+    return out;
+  });
+}
+/** 제품의 채널 순서(전체 기간 세션 많은 순, 색이 고정되도록 제품 단위로 계산). 8개 넘으면 7개 + 그 외 */
+const groupCache = new Map();
+function channelGroups(product) {
+  if (groupCache.has(product.id)) return groupCache.get(product.id);
+  const tot = {};
+  product.pages.forEach((pg) => Object.entries(pg.channels || {}).forEach(([ch, rows]) =>
+    rows.forEach((r) => { if (r) tot[ch] = (tot[ch] || 0) + r[IDX.sessions - 1]; })));
+  const order = Object.keys(tot).sort((a, b) => tot[b] - tot[a]);
+  const top = order.length > 8 ? order.slice(0, 7) : order, rest = order.slice(top.length);
+  const g = [...top.map((ch, i) => ({ key: ch, name: ch, color: `--s${i + 1}` })),
+    ...(rest.length ? [{ key: "__other", name: `그 외 ${rest.length}개`, color: "--s8", members: rest }] : [])];
+  groupCache.set(product.id, g); return g;
+}
+const ALL = { key: "__all", name: "전체", color: "--all" };
+function seriesRows(page, key) {
+  if (key === "__all") return page.daily;
+  if (key !== "__other") return series(page, key);
+  const ck = page.key + "§__other";
+  if (!seriesCache.has(ck)) {
+    const g = channelGroups(P).find((x) => x.key === "__other");
+    seriesCache.set(ck, combine(g.members.map((ch) => series(page, ch))));
+  }
+  return seriesCache.get(ck);
 }
 function rowsIn(rows, from, to) { return rows.filter((r) => r[0] >= from && r[0] <= to); }
 function aggregate(rows, key) {
@@ -384,7 +446,7 @@ function renderTabs() {
 function selectProduct(id, pageKey) {
   P = DATA.products.find((p) => p.id === id) || DATA.products[0];
   SEL = P.pages.find((r) => r.key === pageKey) || P.pages[0] || null;
-  CH = null; renderTabs(); renderAll();
+  ON = new Set(["__all"]); renderTabs(); renderAll();
 }
 function renderAll() { renderList(); renderDetail(); writeHash(); }
 
@@ -408,7 +470,7 @@ function renderList() {
         <span class="m">${m}</span></button></li>`; }).join("")}</ul></li>`).join("");
   SEL = keepSel;
   $("list").querySelectorAll(".item").forEach((b) => b.onclick = () => {
-    SEL = P.pages.find((r) => r.key === b.dataset.key); CH = null;
+    SEL = P.pages.find((r) => r.key === b.dataset.key);
     $("list").querySelectorAll(".item").forEach((x) => x.setAttribute("aria-current", String(x === b)));
     renderDetail(); writeHash();
   });
@@ -448,21 +510,36 @@ function renderDetail() {
     $("kpi-error").innerHTML = `${esc(r.error)}<br><span class="sub">서비스 계정이 이 제품의 GA4 속성에 <b>뷰어</b>로 추가됐는지 확인해 주세요.</span>`;
     return;
   }
+  const groups = channelGroups(P);
   $("kpis").innerHTML = Object.entries(DATA.metrics).map(([k, m]) => {
     const c = compare(r.daily, k, R);
     const sub = c.state === "short" ? `<span class="ba" style="margin:0">비교 기간 데이터 없음</span>`
       : c.state === "new" ? `${deltaHtml(c, k)}<span class="ba">비교 기간엔 방문 없음</span>`
       : `${deltaHtml(c, k)}<span class="ba">비교 ${fmt(c.prev, m.fmt)}</span>`;
-    return `<button class="tile" data-metric="${k}" aria-pressed="${k === METRIC}"><span class="k">${esc(m.label)}${m.lowerIsBetter ? ' <span class="hint">낮을수록 좋음</span>' : ""}</span>
-      <span class="v">${fmt(c.cur, m.fmt)}</span><span>${sub}</span></button>`;
+    const chRows = groups.map((g) => {
+      const cc = compare(seriesRows(r, g.key), k, R);
+      return `<li><i class="dot" style="background:var(${g.color})"></i><span class="n" title="${esc(g.name)}">${esc(g.name)}</span><span>${fmt(cc.cur, m.fmt)}</span>${deltaHtml(cc, k)}</li>`;
+    }).join("");
+    return `<div class="tile" data-metric="${k}" aria-pressed="${k === METRIC}">
+      <button class="tile-main" data-metric="${k}"><span class="k">${esc(m.label)}${m.lowerIsBetter ? ' <span class="hint">낮을수록 좋음</span>' : ""}</span>
+        <span class="v">${fmt(c.cur, m.fmt)}</span><span>${sub}</span></button>
+      ${groups.length ? `<details class="tile-ch" data-metric="${k}"${OPEN.has(k) ? " open" : ""}><summary>채널별</summary><ul>${chRows}</ul></details>` : ""}
+    </div>`;
   }).join("");
-  $("kpis").querySelectorAll(".tile").forEach((b) => b.onclick = () => setMetric(b.dataset.metric, true));
-  $("kpi-note").textContent = "카드를 누르면 아래에서 그 지표의 일별 추이와 채널별 상세를 볼 수 있어요. 합계 지표는 일평균, 비율 지표는 세션 가중 평균이에요."
-    + (R.label.includes("진행 중") ? " 진행 중인 기간은 비교 기간도 같은 일수만큼만 잘라서 비교해요." : "");
+  $("kpis").querySelectorAll(".tile-main").forEach((b) => b.onclick = () => setMetric(b.dataset.metric, true));
+  $("kpis").querySelectorAll(".tile-ch").forEach((d) => d.addEventListener("toggle", () => { d.open ? OPEN.add(d.dataset.metric) : OPEN.delete(d.dataset.metric); syncFoldAll(); }));
+  syncFoldAll();
+  $("kpi-note").textContent = "카드를 누르면 아래 차트가 그 지표로 바뀌어요. 합계 지표는 일평균, 비율 지표는 세션 가중 평균이에요."
+    + (R.label.includes("진행 중") ? " 진행 중인 기간은 비교 기간도 같은 일수만큼만 비교해요." : "");
   renderChannels(R);
   drawChart(R);
 }
 
+function syncFoldAll() {
+  const n = Object.keys(DATA.metrics).length;
+  $("fold-all").textContent = OPEN.size === n ? "채널별 모두 접기" : "채널별 모두 펼치기";
+  $("fold-all").hidden = !channelGroups(P).length;
+}
 function setMetric(k, scroll) {
   METRIC = k; $("metric").value = k;
   $("kpis").querySelectorAll(".tile").forEach((t) => t.setAttribute("aria-pressed", String(t.dataset.metric === k)));
@@ -470,45 +547,61 @@ function setMetric(k, scroll) {
   if (scroll) $("chart-card").scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
-// ---------- 채널별 상세
+// ---------- 채널별 상세 (표 + 차트 토글 버튼)
+function toggleSeries(key) {
+  if (ON.has(key)) { if (ON.size > 1) ON.delete(key); } else ON.add(key);
+  const R = range(); renderChannels(R); drawChart(R);
+}
 function renderChannels(R) {
-  const m = DATA.metrics[METRIC], chs = Object.keys(SEL.channels || {});
+  const m = DATA.metrics[METRIC], groups = channelGroups(P);
   const sess = (rows) => rowsIn(rows, R.from, R.to).reduce((a, r) => a + r[IDX.sessions], 0);
   const totalSess = sess(SEL.daily) || 1;
-  const list = chs.map((ch) => ({ ch, rows: series(SEL, ch) })).map((x) => ({ ...x, s: sess(x.rows) }))
-    .filter((x) => x.s > 0 || rowsIn(x.rows, R.pFrom, R.pTo).some((r) => r[IDX.sessions] > 0))
-    .sort((a, b) => b.s - a.s);
+  const all = [ALL, ...groups];
+  // 토글 버튼
+  $("chips").innerHTML = all.map((g) => `<button class="chip" data-key="${esc(g.key)}" aria-pressed="${ON.has(g.key)}"><i class="dot" style="background:var(${g.color})"></i>${esc(g.name)}</button>`).join("");
+  $("chips").querySelectorAll(".chip").forEach((b) => b.onclick = () => toggleSeries(b.dataset.key));
+  // 표
   $("ch-title").textContent = `채널별 · ${m.label}`;
-  const row = (name, rows, s, key) => {
-    const c = compare(rows, METRIC, R);
-    return `<tr data-ch="${esc(key || "")}" aria-selected="${(key || null) === CH}" tabindex="0">
-      <td>${name}</td><td class="num">${fmt(c.cur, m.fmt)}</td><td class="num muted">${c.state === "short" ? "–" : fmt(c.prev, m.fmt)}</td>
-      <td class="num">${deltaHtml(c, METRIC)}</td>
-      <td class="num"><span class="bar"><i style="width:${Math.round(s / totalSess * 100)}%"></i></span>${(s / totalSess * 100).toFixed(1)}%</td></tr>`;
-  };
+  $("ch-group").textContent = SEL.channelGroup ? `기준: ${SEL.channelGroup}` : "";
   $("ch-table").innerHTML = `<thead><tr><th>채널</th><th class="num">선택 기간</th><th class="num">${esc(R.cmpName)}</th><th class="num">변화</th><th class="num">세션 비중</th></tr></thead>
-    <tbody>${row("<b>전체</b>", SEL.daily, totalSess, null)}${list.map((x) => row(chName(x.ch), x.rows, x.s, x.ch)).join("")}</tbody>`;
+    <tbody>${all.map((g) => {
+      const rows = seriesRows(SEL, g.key), c = compare(rows, METRIC, R), s = sess(rows);
+      return `<tr data-key="${esc(g.key)}" aria-selected="${ON.has(g.key)}" tabindex="0">
+        <td><i class="dot" style="background:var(${g.color});margin-right:8px"></i>${g.key === "__all" ? "<b>전체</b>" : esc(g.name)}${g.members ? `<span class="sub" title="${esc(g.members.join(", "))}"> (${esc(g.members.join(", "))})</span>` : ""}</td>
+        <td class="num">${fmt(c.cur, m.fmt)}</td><td class="num muted">${c.state === "short" ? "–" : fmt(c.prev, m.fmt)}</td>
+        <td class="num">${deltaHtml(c, METRIC)}</td>
+        <td class="num"><span class="bar"><i style="width:${Math.round(s / totalSess * 100)}%"></i></span>${(s / totalSess * 100).toFixed(1)}%</td></tr>`;
+    }).join("")}</tbody>`;
   $("ch-table").querySelectorAll("tbody tr").forEach((tr) => {
-    const pick = () => { CH = tr.dataset.ch || null; renderChannels(range()); drawChart(range()); };
-    tr.onclick = pick; tr.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pick(); } };
+    tr.onclick = () => toggleSeries(tr.dataset.key);
+    tr.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleSeries(tr.dataset.key); } };
   });
 }
 
 // ---------- 차트: 선택 기간(실선) + 비교 기간(점선)을 같은 날짜 순서로 겹쳐 보기
 function drawChart(R) {
-  const meta = DATA.metrics[METRIC], rows = series(SEL, CH);
-  const cur = rowsIn(rows, R.from, R.to), prev = rowsIn(rows, R.pFrom, R.pTo);
-  const labels = cur.map((r) => r[0]);
-  const values = cur.map((r) => dayValue(r, METRIC));
-  const prevMap = Object.fromEntries(prev.map((r) => [r[0], r]));
-  const offset = diffDays(R.from, R.pFrom);
-  const prevDates = labels.map((d) => addDays(d, offset));
-  const cmpVals = prevDates.map((d) => (prevMap[d] ? dayValue(prevMap[d], METRIC) : null));
+  const meta = DATA.metrics[METRIC];
+  const shown = [ALL, ...channelGroups(P)].filter((g) => ON.has(g.key));
+  const base = rowsIn(SEL.daily, R.from, R.to), labels = base.map((r) => r[0]);
+  const offset = diffDays(R.from, R.pFrom), prevDates = labels.map((d) => addDays(d, offset));
+  const single = shown.length === 1;
+  const datasets = shown.map((g, i) => {
+    const rows = rowsIn(seriesRows(SEL, g.key), R.from, R.to);
+    return { label: g.name, data: rows.map((r) => dayValue(r, METRIC)), borderColor: css(g.color), backgroundColor: css(g.color),
+      borderWidth: g.key === "__all" ? 2.5 : 2, pointRadius: labels.length <= 31 ? 2.5 : 0, pointHoverRadius: 5, tension: 0.25, order: 1 };
+  });
+  if (single) {
+    const prevMap = Object.fromEntries(rowsIn(seriesRows(SEL, shown[0].key), R.pFrom, R.pTo).map((r) => [r[0], r]));
+    datasets.push({ label: R.cmpName, isCmp: true, data: prevDates.map((d) => (prevMap[d] ? dayValue(prevMap[d], METRIC) : null)),
+      borderColor: css("--cmp"), backgroundColor: css("--cmp"), borderWidth: 1.5, borderDash: [5, 4], pointRadius: 0, pointHoverRadius: 4,
+      tension: 0.25, spanGaps: true, order: 2 });
+  }
   $("chart-title").textContent = `${meta.label} · 일별 추이`;
-  $("chart-sub").innerHTML = CH ? `채널: <b>${chName(CH)}</b> · <a href="#" id="ch-clear">전체로 보기</a>` : "전체 채널";
-  if (CH) $("ch-clear").onclick = (e) => { e.preventDefault(); CH = null; renderChannels(range()); drawChart(range()); };
+  $("chart-sub").textContent = single ? `${shown[0].name} · 아래 버튼으로 채널을 켜고 끌 수 있어요` : `${shown.length}개 계열 비교 중 · 비교 기간 점선은 하나만 켰을 때 보여요`;
   $("lg-cur").textContent = `${R.label} (${ymd(R.from)}~${ymd(R.to)})`;
   $("lg-cmp").textContent = `${R.cmpName} (${ymd(R.pFrom)}~${ymd(R.pTo)})`;
+  $("lg-cmp").parentElement.hidden = !single;
+  document.querySelector(".sw-cur").style.background = css(shown[0].color);
 
   const releaseDates = [...new Set(P.pages.map((p) => p.date))];
   const marks = releaseDates.map((d) => ({ d, i: labels.indexOf(d), mine: d === SEL.date })).filter((m) => m.i >= 0);
@@ -542,16 +635,10 @@ function drawChart(R) {
       ctx.restore();
     },
   };
-  const few = labels.length <= 31;
   if (chart) chart.destroy();
   chart = new Chart($("chart"), {
     type: "line",
-    data: { labels, datasets: [
-      { label: "선택 기간", data: values, borderColor: css("--accent"), backgroundColor: css("--accent"), borderWidth: 2,
-        pointRadius: few ? 3 : 0, pointHoverRadius: 5, tension: 0.25, order: 1 },
-      { label: R.cmpName, data: cmpVals, borderColor: css("--cmp"), backgroundColor: css("--cmp"), borderWidth: 1.5, borderDash: [5, 4],
-        pointRadius: 0, pointHoverRadius: 4, tension: 0.25, spanGaps: true, order: 2 },
-    ] },
+    data: { labels, datasets },
     options: {
       maintainAspectRatio: false, animation: { duration: 250 },
       interaction: { mode: "index", intersect: false },
@@ -560,12 +647,12 @@ function drawChart(R) {
         legend: { display: false },
         tooltip: {
           backgroundColor: css("--text"), titleColor: css("--surface"), bodyColor: css("--surface"), footerColor: css("--surface"),
-          padding: 10, boxPadding: 4,
+          padding: 10, boxPadding: 4, usePointStyle: true,
           callbacks: {
             title: (items) => { const d = labels[items[0].dataIndex]; return `${d} (${dow(d)})`; },
-            label: (c) => c.datasetIndex === 0
-              ? ` ${fmt(c.parsed.y, meta.fmt)}`
-              : ` 비교 ${prevDates[c.dataIndex].slice(2).replaceAll("-", ".")} (${dow(prevDates[c.dataIndex])}): ${fmt(c.parsed.y, meta.fmt)}`,
+            label: (c) => c.dataset.isCmp
+              ? ` 비교 ${prevDates[c.dataIndex].slice(2).replaceAll("-", ".")} (${dow(prevDates[c.dataIndex])}): ${fmt(c.parsed.y, meta.fmt)}`
+              : ` ${single ? "" : c.dataset.label + ": "}${fmt(c.parsed.y, meta.fmt)}`,
             footer: (items) => {
               const d = labels[items[0].dataIndex], names = P.pages.filter((p) => p.date === d).map((p) => p.name);
               return names.length ? [`● 배포: ${names.join(", ")}`] : [];
@@ -603,7 +690,7 @@ fetch("/auth/me", { cache: "no-store" })
 fetch("data.json", { cache: "no-store" })
   .then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); })
   .then((data) => {
-    if (data.version !== 4) throw new Error("데이터 형식이 이전 버전입니다. 워크플로를 다시 실행해 주세요.");
+    if (data.version !== 5) throw new Error("데이터 형식이 이전 버전입니다. 워크플로를 다시 실행해 주세요.");
     DATA = data;
     IDX = Object.fromEntries(data.raw.map((k, i) => [k, i + 1]));
     DATA.dataFrom = data.products.flatMap((p) => p.pages).filter((p) => p.daily).map((p) => p.daily[0][0]).sort().at(-1) || data.dataThrough;
@@ -615,6 +702,12 @@ fetch("data.json", { cache: "no-store" })
     document.querySelectorAll("#units button").forEach((b) => b.onclick = () => setUnit(b.dataset.unit));
     document.querySelectorAll("#modes button").forEach((b) => b.onclick = () => setMode(b.dataset.mode));
     $("block").addEventListener("change", (e) => setBlock(e.target.value));
+    $("fold-all").onclick = () => {
+      const keys = Object.keys(DATA.metrics), openAll = OPEN.size !== keys.length;
+      OPEN.clear(); if (openAll) keys.forEach((k) => OPEN.add(k));
+      $("kpis").querySelectorAll(".tile-ch").forEach((d) => { d.open = openAll; });
+      syncFoldAll();
+    };
     $("from").addEventListener("change", setCustom);
     $("to").addEventListener("change", setCustom);
     const h = readHash();
