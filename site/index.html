@@ -96,7 +96,6 @@
   .legend > span { display: inline-flex; align-items: center; gap: 6px; }
   .sw { display: inline-block; width: 18px; height: 10px; border-radius: 2px; }
   .sw-avg { height: 3px; background: var(--accent); }
-  .sw-daily { height: 2px; background: var(--daily); }
   .sw-rel { height: 0; width: 14px; border-top: 2px dashed var(--release); border-radius: 0; }
   .chart-wrap { position: relative; height: 340px; }
   .note { color: var(--muted); font-size: 12px; margin-top: 12px; }
@@ -136,7 +135,7 @@
 
       <div class="period" role="group" aria-label="조회 기간">
         <div class="seg" id="presets">
-          <button data-days="7">최근 7일</button><button data-days="30">30일</button><button data-days="90">90일</button><button data-days="180">180일</button>
+          <button data-days="7">최근 7일</button><button data-days="14">14일</button><button data-days="30">30일</button><button data-days="90">90일</button><button data-days="180">180일</button>
         </div>
         <div class="dates">
           <input type="date" id="from" aria-label="시작일">
@@ -157,8 +156,7 @@
         <select id="metric" aria-label="지표 선택"></select>
       </div>
       <div class="legend">
-        <span><i class="sw sw-avg"></i>7일 평균</span>
-        <span><i class="sw sw-daily"></i>일별 값</span>
+        <span><i class="sw sw-avg"></i>일별 값</span>
         <span><i class="sw sw-rel"></i>배포일</span>
         <span id="rel-out" hidden></span>
       </div>
@@ -172,7 +170,7 @@ const $ = (id) => document.getElementById(id);
 const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
 const WEEK = ["일", "월", "화", "수", "목", "금", "토"];
 const PRIMARY = "activeUsers";
-const PRESETS = [7, 30, 90, 180];
+const PRESETS = [7, 14, 30, 90, 180];
 const addDays = (iso, n) => { const d = new Date(iso + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
 const diffDays = (a, b) => Math.round((new Date(b + "T00:00:00Z") - new Date(a + "T00:00:00Z")) / 86400000);
 const shortDate = (iso) => `${+iso.slice(5, 7)}/${+iso.slice(8, 10)}`;
@@ -329,9 +327,6 @@ function drawChart(metric) {
   const rows = rowsIn(SEL, R.from, R.to);
   const labels = rows.map((r) => r[0]);
   const values = rows.map((r) => dayValue(r, metric));
-  const all = SEL.daily, avgMap = {};
-  all.forEach((r, i) => { if (i >= 6) avgMap[r[0]] = aggregate(all.slice(i - 6, i + 1), metric); });
-  const avg = labels.map((d) => avgMap[d] ?? null);
   $("chart-title").textContent = `${meta.label} · 일별 추이`;
 
   // 배포일 표시 (같은 제품의 다른 배포일은 흐리게)
@@ -365,9 +360,8 @@ function drawChart(metric) {
   chart = new Chart($("chart"), {
     type: "line",
     data: { labels, datasets: [
-      { label: "7일 평균", data: avg, borderColor: css("--accent"), borderWidth: 2.5, pointRadius: 0, pointHoverRadius: 4, tension: 0.3, order: 1 },
-      { label: "일별 값", data: values, borderColor: css("--daily"), backgroundColor: css("--daily"), borderWidth: 1.5,
-        pointRadius: few ? 3 : 0, pointHoverRadius: 4, tension: 0.2, order: 2 },
+      { label: meta.label.replace(" (일평균)", ""), data: values, borderColor: css("--accent"), backgroundColor: css("--accent"), borderWidth: 2,
+        pointRadius: few ? 3 : 0, pointHoverRadius: 5, tension: 0.25 },
     ] },
     options: {
       maintainAspectRatio: false, animation: { duration: 250 },
@@ -377,10 +371,10 @@ function drawChart(metric) {
         legend: { display: false },
         tooltip: {
           backgroundColor: css("--text"), titleColor: css("--surface"), bodyColor: css("--surface"), footerColor: css("--surface"),
-          padding: 10, boxPadding: 4,
+          padding: 10, boxPadding: 4, displayColors: false,
           callbacks: {
             title: (items) => { const d = labels[items[0].dataIndex]; return `${d} (${dow(d)})`; },
-            label: (c) => `${c.dataset.label}: ${fmt(c.parsed.y, meta.fmt)}`,
+            label: (c) => ` ${c.dataset.label}: ${fmt(c.parsed.y, meta.fmt)}`,
             footer: (items) => {
               const d = labels[items[0].dataIndex];
               const names = P.pages.filter((p) => p.date === d).map((p) => p.name);
