@@ -18,21 +18,34 @@ Vercel middleware.js → Google 로그인 + @rsupport.com 계정만 통과
 - GA4 데이터 확정 지연을 감안해 **2일 전까지만** 사용합니다. 후 구간이 N일 미만이면 "집계 중"으로 표시됩니다.
 - 실제 데이터(`site/data.json`)는 저장소에 커밋하지 않습니다.
 
-## 배포일 추가하기 (releases.json)
+## 제품 · 배포 페이지 관리
 
-배포할 때마다 저장소 루트의 `releases.json`에 한 줄씩 추가하고 커밋·푸시합니다. 푸시하면 대시보드가 바로 다시 계산됩니다.
-
+### products.json — 제품과 GA4 속성
 ```json
 [
-  { "date": "2026-10-28", "version": "v3.2", "title": "결제 화면 개편" },
-  { "date": "2026-10-15", "version": "v3.1", "title": "온보딩 변경" }
+  { "id": "remoteview", "name": "리모트뷰", "propertyId": "307717617" },
+  { "id": "remotemeeting", "name": "리모트미팅", "propertyId": "543595202" },
+  { "id": "airepoto", "name": "AI레포토", "propertyId": "477959686" }
 ]
 ```
+서비스 계정(`ga4-reader@…`)이 **모든 속성에 뷰어**로 추가돼 있어야 합니다.
 
-- `date`: 필수, `YYYY-MM-DD` 형식 (한국 시간 기준 배포일)
-- `version`, `title`, `url`: 선택
-- 순서는 상관없습니다. 항목 사이에 쉼표를 넣고, 마지막 항목 뒤에는 넣지 않습니다.
-- (선택) GitHub Releases도 함께 쓰려면 `RELEASE_REPOS` 변수를 설정합니다. 두 목록이 합쳐집니다.
+### releases.json — 배포한 페이지 (페이지 하나당 한 줄)
+```json
+[
+  { "date": "2026-09-21", "product": "airepoto", "name": "SDK 페이지", "path": "/ko-kr/sdk/" },
+  { "date": "2026-06-30", "product": "remotemeeting", "name": "메인", "path": "/" },
+  { "date": "2026-06-30", "product": "remotemeeting", "name": "특장점", "path": "/ko-kr/features/", "match": "prefix" }
+]
+```
+- `date`: 배포일 `YYYY-MM-DD` (한국 시간)
+- `product`: products.json 의 `id`
+- `name`: 왼쪽 목록에 보일 이름
+- `path`: 페이지 주소. 전체 URL을 붙여넣어도 경로만 씁니다. 여러 개면 `["/a/", "/b/"]`. 비우면 사이트 전체 지표
+- `match`(선택): `exact`(기본, 끝 `/` 유무는 같게 취급) / `prefix`(하위 경로까지 포함)
+- 새로 만든 페이지는 배포 전 데이터가 없어서 "신규"로 표시되고 배포 후 값만 보여줍니다.
+
+푸시하면 대시보드가 바로 다시 계산됩니다.
 
 ## 설정 (최초 1회)
 
@@ -79,12 +92,10 @@ cat .vercel/project.json   # orgId, projectId 확인
 | 종류 | 이름 | 값 |
 |---|---|---|
 | Secret | `GA4_SA_KEY` | 서비스 계정 JSON **전체 내용** |
-| Secret | `GA4_PROPERTY_ID` | GA4 속성 ID (숫자) |
 | Secret | `VERCEL_TOKEN` | Vercel 토큰 |
 | Secret | `VERCEL_ORG_ID` | `.vercel/project.json`의 `orgId` |
 | Secret | `VERCEL_PROJECT_ID` | `.vercel/project.json`의 `projectId` |
 | Secret | `RELEASES_TOKEN` | (릴리스 저장소가 private이고 이 저장소와 다를 때) Fine-grained PAT, 대상 저장소 **Contents: Read** |
-| Variable | `RELEASE_REPOS` | (선택) GitHub Releases도 읽을 저장소. 예: `rsupport/service-web,rsupport/service-app` |
 | Variable | `WINDOW_DAYS` | (선택) 비교 일수. 기본 `7` |
 
 ### 5. 첫 실행
@@ -122,7 +133,7 @@ python -m http.server -d site 8000     # http://localhost:8000
 
 ```bash
 pip install -r scripts/requirements.txt
-export GOOGLE_APPLICATION_CREDENTIALS=~/keys/ga4-sa.json GA4_PROPERTY_ID=123456789
+export GOOGLE_APPLICATION_CREDENTIALS=~/keys/ga4-sa.json
 python scripts/fetch_ga4.py
 ```
 

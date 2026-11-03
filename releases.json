@@ -1,4 +1,5 @@
 [
-  { "date": "2026-09-21", "title": "AIrepoto SDK page" },
-  { "date": "2026-06-30", "title": "리모트미팅 메인, 특장점" }
+  { "date": "2026-09-21", "product": "airepoto", "name": "SDK 페이지", "path": "https://www.airepoto.com/ko/sdk/" },
+  { "date": "2026-06-30", "product": "remotemeeting", "name": "메인", "path": "https://www.remotemeeting.com/ko/" },
+  { "date": "2026-06-30", "product": "remotemeeting", "name": "특장점", "path": "https://www.remotemeeting.com/ko/features/" }
 ]

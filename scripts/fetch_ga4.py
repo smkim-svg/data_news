@@ -1,13 +1,18 @@
-"""GA4 지표를 배포일(GitHub Releases) 기준 전/후로 집계해 site/data.json 을 생성한다.
+"""배포한 페이지별 GA4 지표를 배포일 기준 전/후로 집계해 site/data.json 을 생성한다.
+
+설정 파일 (저장소 루트)
+  products.json   제품 목록과 각 제품의 GA4 속성 ID
+                  [{"id": "remotemeeting", "name": "리모트미팅", "propertyId": "543595202"}]
+  releases.json   배포한 페이지 목록 (페이지 하나당 한 줄)
+                  [{"date": "2026-06-30", "product": "remotemeeting", "name": "메인", "path": "/"}]
+                  - path   : GA4 의 페이지 경로(pagePath). 전체 URL 을 넣어도 경로만 사용. 여러 개면 배열
+                  - match  : "exact"(기본, 끝 / 유무는 같게 취급) 또는 "prefix"(하위 경로 포함)
+                  - path 를 비우면 그 제품 사이트 전체 지표
 
 환경 변수
-  GA4_PROPERTY_ID   GA4 속성 ID (숫자)                         [필수]
-  RELEASE_REPOS     릴리스를 읽을 저장소, 쉼표 구분 (owner/repo)  [필수]
-  RELEASES_TOKEN    릴리스 조회용 GitHub 토큰 (없으면 GITHUB_TOKEN)
-  WINDOW_DAYS       전/후 비교 일수 (기본 7)
-  LOOKBACK_DAYS     차트용으로 최소한 받아올 기간 (기본 180, 화면의 180일 버튼용)
-  TIMEZONE          배포 시각을 날짜로 바꿀 때 쓰는 시간대 (기본 Asia/Seoul)
-  INCLUDE_PRERELEASE  1 이면 pre-release 포함 (기본 0)
+  WINDOW_DAYS     전/후 비교 일수 (기본 7)
+  LOOKBACK_DAYS   차트용으로 최소한 받아올 기간 (기본 180)
+  TIMEZONE        기본 Asia/Seoul
   GOOGLE_APPLICATION_CREDENTIALS  서비스 계정 JSON 경로
 
 로컬 미리보기:  python scripts/fetch_ga4.py --demo
@@ -19,23 +24,32 @@ import json
 import os
 import random
 import sys
-import urllib.request
+import zlib
+from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
-OUT_PATH = os.path.join(os.path.dirname(__file__), "..", "site", "data.json")
+ROOT = os.path.join(os.path.dirname(__file__), "..")
+OUT_PATH = os.path.join(ROOT, "site", "data.json")
+PRODUCTS_FILE = os.environ.get("PRODUCTS_FILE", os.path.join(ROOT, "products.json"))
+RELEASES_FILE = os.environ.get("RELEASES_FILE", os.path.join(ROOT, "releases.json"))
 
-# GA4 Data API 지표 이름 → 집계 방식
+# 화면에 보여줄 지표
 #   avg      : 일별 값의 평균 (일평균)
-#   weighted : 세션 수로 가중 평균 (비율·평균값 지표)
+#   weighted : 세션 수로 가중 평균 (비율 지표)
+#   ratio    : 분자 합 / 분모 합
 METRICS = {
-    "activeUsers": {"label": "활성 사용자 (일평균)", "agg": "avg", "fmt": "int"},
-    "newUsers": {"label": "신규 사용자 (일평균)", "agg": "avg", "fmt": "int"},
+    "screenPageViews": {"label": "페이지 조회수 (일평균)", "agg": "avg", "fmt": "int"},
+    "activeUsers": {"label": "사용자 (일평균)", "agg": "avg", "fmt": "int"},
     "sessions": {"label": "세션 (일평균)", "agg": "avg", "fmt": "int"},
     "engagementRate": {"label": "참여율", "agg": "weighted", "fmt": "pct"},
-    "averageSessionDuration": {"label": "평균 세션 시간", "agg": "weighted", "fmt": "sec"},
+    "avgEngagementTime": {"label": "사용자당 참여 시간", "agg": "ratio", "num": "userEngagementDuration",
+                          "den": "activeUsers", "fmt": "sec"},
     "keyEvents": {"label": "키 이벤트 (일평균)", "agg": "avg", "fmt": "int"},
     "sessionKeyEventRate": {"label": "세션 전환율", "agg": "weighted", "fmt": "pct"},
 }
+# GA4 에서 실제로 받아오는 지표 (최대 10개)
+RAW = ["screenPageViews", "activeUsers", "sessions", "engagementRate", "userEngagementDuration",
+       "keyEvents", "sessionKeyEventRate"]
 
 WINDOW = int(os.environ.get("WINDOW_DAYS", "7"))
 LOOKBACK = int(os.environ.get("LOOKBACK_DAYS", "180"))
@@ -43,135 +57,186 @@ TZ = ZoneInfo(os.environ.get("TIMEZONE", "Asia/Seoul"))
 DATA_LAG_DAYS = 2  # GA4 데이터 확정 지연
 
 
-# ---------------------------------------------------------------- releases
-def fetch_releases() -> list[dict]:
-    """releases.json + (설정된 경우) GitHub Releases 를 합쳐 최신순으로 반환."""
-    out = load_manual_releases() + fetch_github_releases()
-    out.sort(key=lambda r: r["date"], reverse=True)
+# ---------------------------------------------------------------- 설정 파일
+def _load(path: str, name: str) -> list:
+    if not os.path.exists(path):
+        raise SystemExit(f"{name} 파일이 없습니다: {path}")
+    with open(path, encoding="utf-8") as f:
+        try:
+            return json.load(f)
+        except json.JSONDecodeError as e:
+            raise SystemExit(f"{name} 형식 오류 ({e.lineno}번째 줄 근처): 쉼표·따옴표를 확인하세요.")
+
+
+def load_products() -> list[dict]:
+    out = []
+    for i, it in enumerate(_load(PRODUCTS_FILE, "products.json"), 1):
+        pid = str(it.get("propertyId") or "").strip()
+        if not it.get("id") or not pid.isdigit():
+            raise SystemExit(f"products.json {i}번째 항목에 id 또는 숫자 propertyId 가 없습니다: {it}")
+        out.append({"id": str(it["id"]), "name": str(it.get("name") or it["id"]), "propertyId": pid})
     return out
 
 
-RELEASES_FILE = os.environ.get(
-    "RELEASES_FILE", os.path.join(os.path.dirname(__file__), "..", "releases.json"))
+def normalize_path(p: str) -> str:
+    p = str(p).strip()
+    if "://" in p:
+        p = urlparse(p).path or "/"
+    p = p.split("?")[0].split("#")[0]
+    if not p.startswith("/"):
+        p = "/" + p
+    return p
 
 
-def load_manual_releases() -> list[dict]:
-    """저장소 루트의 releases.json 에 직접 적은 배포일 목록."""
-    if not os.path.exists(RELEASES_FILE):
-        return []
-    with open(RELEASES_FILE, encoding="utf-8") as f:
-        items = json.load(f)
+def load_pages(products: list[dict]) -> list[dict]:
+    ids = {p["id"] for p in products}
     out = []
-    for i, it in enumerate(items, 1):
+    for i, it in enumerate(_load(RELEASES_FILE, "releases.json"), 1):
         try:
             d = dt.date.fromisoformat(str(it["date"]).strip())
         except (KeyError, ValueError, TypeError):
             raise SystemExit(f"releases.json {i}번째 항목의 date 가 YYYY-MM-DD 형식이 아닙니다: {it}")
-        version = str(it.get("version") or it.get("title") or d.isoformat())
-        out.append({"repo": "manual", "version": version, "title": str(it.get("title") or version),
-                    "date": d.isoformat(), "url": it.get("url") or ""})
-    return out
-
-
-def fetch_github_releases() -> list[dict]:
-    repos = [r.strip() for r in os.environ.get("RELEASE_REPOS", "").split(",") if r.strip()]
-    if not repos:
-        return []
-    token = os.environ.get("RELEASES_TOKEN") or os.environ.get("GITHUB_TOKEN")
-    include_pre = os.environ.get("INCLUDE_PRERELEASE") == "1"
-    out = []
-    for repo in repos:
-        page = 1
-        while True:
-            req = urllib.request.Request(
-                f"https://api.github.com/repos/{repo}/releases?per_page=100&page={page}",
-                headers={"Accept": "application/vnd.github+json",
-                         **({"Authorization": f"Bearer {token}"} if token else {})},
-            )
-            with urllib.request.urlopen(req) as r:
-                items = json.load(r)
-            if not items:
-                break
-            for it in items:
-                if it.get("draft") or (it.get("prerelease") and not include_pre):
-                    continue
-                ts = it.get("published_at") or it.get("created_at")
-                when = dt.datetime.fromisoformat(ts.replace("Z", "+00:00")).astimezone(TZ)
-                out.append({
-                    "repo": repo,
-                    "version": it.get("tag_name") or it.get("name"),
-                    "title": it.get("name") or it.get("tag_name"),
-                    "date": when.date().isoformat(),
-                    "url": it.get("html_url"),
-                })
-            page += 1
+        product = str(it.get("product") or "").strip()
+        if product not in ids:
+            raise SystemExit(f"releases.json {i}번째 항목의 product '{product}' 가 products.json 에 없습니다. "
+                             f"사용 가능: {', '.join(sorted(ids))}")
+        raw_paths = it.get("path") or []
+        paths = [normalize_path(p) for p in (raw_paths if isinstance(raw_paths, list) else [raw_paths]) if str(p).strip()]
+        match = str(it.get("match") or "exact").lower()
+        if match not in ("exact", "prefix"):
+            raise SystemExit(f"releases.json {i}번째 항목의 match 는 exact 또는 prefix 여야 합니다.")
+        name = str(it.get("name") or it.get("title") or (paths[0] if paths else "사이트 전체"))
+        out.append({"date": d.isoformat(), "product": product, "name": name, "paths": paths, "match": match,
+                    "note": str(it.get("note") or ""), "url": str(it.get("url") or "")})
     return out
 
 
 # ---------------------------------------------------------------- GA4
-def fetch_daily(start: dt.date, end: dt.date) -> dict[str, dict[str, float]]:
-    from google.analytics.data_v1beta import BetaAnalyticsDataClient
-    from google.analytics.data_v1beta.types import (DateRange, Dimension, Metric,
-                                                    OrderBy, RunReportRequest)
+def page_filter(paths: list[str], match: str):
+    from google.analytics.data_v1beta.types import Filter, FilterExpression, FilterExpressionList
+    if not paths:
+        return None
+    exprs = []
+    for p in paths:
+        if match == "prefix":
+            f = Filter(field_name="pagePath",
+                       string_filter=Filter.StringFilter(match_type=Filter.StringFilter.MatchType.BEGINS_WITH, value=p))
+        else:
+            variants = sorted({p, p.rstrip("/") or "/", (p.rstrip("/") + "/") if p != "/" else "/"})
+            f = Filter(field_name="pagePath", in_list_filter=Filter.InListFilter(values=variants))
+        exprs.append(FilterExpression(filter=f))
+    return exprs[0] if len(exprs) == 1 else FilterExpression(or_group=FilterExpressionList(expressions=exprs))
 
-    client = BetaAnalyticsDataClient()
-    names = list(METRICS)
-    resp = client.run_report(RunReportRequest(
-        property=f"properties/{os.environ['GA4_PROPERTY_ID']}",
+
+def fetch_daily(property_id: str, start: dt.date, end: dt.date, paths: list[str], match: str) -> dict:
+    from google.analytics.data_v1beta import BetaAnalyticsDataClient
+    from google.analytics.data_v1beta.types import (DateRange, Dimension, Metric, OrderBy,
+                                                    RunReportRequest)
+    req = RunReportRequest(
+        property=f"properties/{property_id}",
         date_ranges=[DateRange(start_date=start.isoformat(), end_date=end.isoformat())],
         dimensions=[Dimension(name="date")],
-        metrics=[Metric(name=n) for n in names],
+        metrics=[Metric(name=n) for n in RAW],
         order_bys=[OrderBy(dimension=OrderBy.DimensionOrderBy(dimension_name="date"))],
         limit=100000,
-        keep_empty_rows=True,
-    ))
+    )
+    flt = page_filter(paths, match)
+    if flt is not None:
+        req.dimension_filter = flt
+    resp = BetaAnalyticsDataClient().run_report(req)
     daily = {}
     for row in resp.rows:
         d = row.dimension_values[0].value  # YYYYMMDD
-        key = f"{d[:4]}-{d[4:6]}-{d[6:]}"
-        daily[key] = {n: float(v.value or 0) for n, v in zip(names, row.metric_values)}
+        daily[f"{d[:4]}-{d[4:6]}-{d[6:]}"] = {n: float(v.value or 0) for n, v in zip(RAW, row.metric_values)}
     return daily
 
 
-def demo_daily(start: dt.date, end: dt.date, releases: list[dict]) -> dict:
-    rnd = random.Random(42)
-    bumps = sorted(dt.date.fromisoformat(r["date"]) for r in releases)
+def demo_daily(start: dt.date, end: dt.date, launch: dt.date, seed: int, new_page: bool) -> dict:
+    rnd = random.Random(seed)
+    base = rnd.uniform(150, 900)
+    lift = rnd.choice([1.12, 0.95, 1.25, 1.04])
     daily, d = {}, start
     while d <= end:
-        lift = 1 + sum(rnd.choice([0.06, -0.03, 0.1, 0.02]) for b in bumps if d >= b) * 0.5
-        week = 0.8 if d.weekday() >= 5 else 1.0
-        users = 4200 * lift * week * rnd.uniform(0.93, 1.07)
-        sessions = users * 1.35
-        daily[d.isoformat()] = {
-            "activeUsers": round(users), "newUsers": round(users * 0.38),
-            "sessions": round(sessions),
-            "engagementRate": min(0.9, 0.58 * lift ** 0.3 * rnd.uniform(0.97, 1.03)),
-            "averageSessionDuration": 165 * lift ** 0.5 * rnd.uniform(0.9, 1.1),
-            "keyEvents": round(sessions * 0.031 * lift * rnd.uniform(0.9, 1.1)),
-            "sessionKeyEventRate": 0.024 * lift * rnd.uniform(0.92, 1.08),
-        }
+        if new_page and d < launch:
+            daily[d.isoformat()] = {n: 0.0 for n in RAW}
+        else:
+            k = (lift if d >= launch else 1.0) * (0.75 if d.weekday() >= 5 else 1.0) * rnd.uniform(0.9, 1.1)
+            users = base * k
+            sessions = users * 1.2
+            daily[d.isoformat()] = {
+                "screenPageViews": round(users * 1.6), "activeUsers": round(users), "sessions": round(sessions),
+                "engagementRate": min(0.95, 0.55 * k ** 0.3), "userEngagementDuration": users * 70 * k ** 0.5,
+                "keyEvents": round(sessions * 0.03 * k), "sessionKeyEventRate": min(1, 0.025 * k),
+            }
         d += dt.timedelta(days=1)
     return daily
 
 
-# ---------------------------------------------------------------- aggregation
+# ---------------------------------------------------------------- 집계
+def fill(daily: dict, start: dt.date, end: dt.date) -> dict:
+    """데이터가 없는 날(조회 0)도 0 으로 채움."""
+    out, d = {}, start
+    while d <= end:
+        out[d.isoformat()] = daily.get(d.isoformat(), {n: 0.0 for n in RAW})
+        d += dt.timedelta(days=1)
+    return out
+
+
+def derive(row: dict) -> dict:
+    """GA4 원본 값 → 화면 지표 (하루 단위)."""
+    res = {}
+    for k, m in METRICS.items():
+        if m["agg"] == "ratio":
+            den = row.get(m["den"], 0)
+            res[k] = row.get(m["num"], 0) / den if den else 0.0
+        else:
+            res[k] = row.get(k, 0.0)
+    return res
+
+
 def aggregate(daily: dict, start: dt.date, end: dt.date) -> tuple[dict, int]:
-    rows = []
-    d = start
+    rows, d = [], start
     while d <= end:
         if d.isoformat() in daily:
             rows.append(daily[d.isoformat()])
         d += dt.timedelta(days=1)
     if not rows:
         return {}, 0
-    total_sessions = sum(r["sessions"] for r in rows) or 1
+    sessions = sum(r["sessions"] for r in rows)
     res = {}
-    for name, meta in METRICS.items():
-        if meta["agg"] == "avg":
-            res[name] = sum(r[name] for r in rows) / len(rows)
+    for k, m in METRICS.items():
+        if m["agg"] == "avg":
+            res[k] = sum(r[k] for r in rows) / len(rows)
+        elif m["agg"] == "weighted":
+            res[k] = sum(r[k] * r["sessions"] for r in rows) / sessions if sessions else 0.0
         else:
-            res[name] = sum(r[name] * r["sessions"] for r in rows) / total_sessions
+            den = sum(r[m["den"]] for r in rows)
+            res[k] = sum(r[m["num"]] for r in rows) / den if den else 0.0
     return res, len(rows)
+
+
+def build_page(product: dict, page: dict, last_full: dt.date, demo: bool) -> dict:
+    launch = dt.date.fromisoformat(page["date"])
+    start = min(launch - dt.timedelta(days=WINDOW), last_full - dt.timedelta(days=LOOKBACK))
+    key = f"{page['date']}|{page['name']}|{'+'.join(page['paths'])}"
+    base = {**page, "key": key}
+    try:
+        raw = (demo_daily(start, last_full, launch, zlib.crc32(key.encode()), new_page=bool(page["paths"]) and "new" in page["note"])
+               if demo else fetch_daily(product["propertyId"], start, last_full, page["paths"], page["match"]))
+    except Exception as e:  # 권한 누락이 가장 흔한 원인
+        msg = str(e).splitlines()[0][:300]
+        print(f"[경고] {product['name']} / {page['name']}: {msg}", file=sys.stderr)
+        return {**base, "error": f"GA4 조회 실패: {msg}"}
+    raw = fill(raw, start, last_full)
+
+    before, nb = aggregate(raw, launch - dt.timedelta(days=WINDOW), launch - dt.timedelta(days=1))
+    after_end = min(launch + dt.timedelta(days=WINDOW - 1), last_full)
+    after, na = aggregate(raw, launch, after_end) if after_end >= launch else ({}, 0)
+    is_new = bool(page["paths"]) and not before.get("screenPageViews")
+    delta = {k: ((after[k] - before[k]) / before[k] * 100) if before.get(k) and k in after else None for k in METRICS}
+    series = [{"date": d, **derive(v)} for d, v in sorted(raw.items())]
+    return {**base, "before": before, "after": after, "deltaPct": delta, "beforeDays": nb, "afterDays": na,
+            "complete": na >= WINDOW, "isNew": is_new, "daily": series}
 
 
 def main() -> None:
@@ -180,46 +245,39 @@ def main() -> None:
     last_full = today - dt.timedelta(days=DATA_LAG_DAYS)
 
     if demo:
-        releases = [
-            {"repo": "demo/app", "version": v, "title": t, "date": (today - dt.timedelta(days=n)).isoformat(), "url": "#"}
-            for v, t, n in [("v2.6.0", "추천 영역 개편", 4), ("v2.5.0", "결제 화면 리뉴얼", 19),
-                            ("v2.4.1", "로그인 버그 수정", 33), ("v2.4.0", "온보딩 단계 축소", 48),
-                            ("v2.3.0", "검색 개선", 75)]
-        ]
+        products = [{"id": "remoteview", "name": "리모트뷰", "propertyId": "0"},
+                    {"id": "remotemeeting", "name": "리모트미팅", "propertyId": "0"},
+                    {"id": "airepoto", "name": "AI레포토", "propertyId": "0"}]
+        mk = lambda prod, n, name, path, note="": {"date": (today - dt.timedelta(days=n)).isoformat(), "product": prod,
+                                                   "name": name, "paths": [path], "match": "exact", "note": note, "url": ""}
+        pages = [mk("remotemeeting", 6, "요금제", "/ko-kr/pricing/"), mk("remotemeeting", 40, "메인", "/"),
+                 mk("remotemeeting", 40, "특장점", "/ko-kr/features/"), mk("airepoto", 43, "SDK 페이지", "/sdk/", "new"),
+                 mk("remoteview", 15, "다운로드", "/download/")]
     else:
-        releases = fetch_releases()
+        products = load_products()
+        pages = load_pages(products)
 
-    earliest = min([dt.date.fromisoformat(r["date"]) for r in releases] + [last_full])
-    start = min(earliest - dt.timedelta(days=WINDOW), last_full - dt.timedelta(days=LOOKBACK))
-    daily = demo_daily(start, last_full, releases) if demo else fetch_daily(start, last_full)
-
-    out_releases = []
-    for r in releases:
-        d = dt.date.fromisoformat(r["date"])
-        before, nb = aggregate(daily, d - dt.timedelta(days=WINDOW), d - dt.timedelta(days=1))
-        after_end = min(d + dt.timedelta(days=WINDOW - 1), last_full)
-        after, na = aggregate(daily, d, after_end) if after_end >= d else ({}, 0)
-        delta = {m: ((after[m] - before[m]) / before[m] * 100) if before.get(m) and m in after else None
-                 for m in METRICS}
-        out_releases.append({**r, "before": before, "after": after, "deltaPct": delta,
-                             "beforeDays": nb, "afterDays": na, "complete": na >= WINDOW})
-
-    chart_start = start  # 최근 LOOKBACK 일 또는 가장 오래된 배포 비교 구간 중 더 이른 날부터 (화면에서 기간 선택)
-    series = [{"date": k, **v} for k, v in sorted(daily.items()) if k >= chart_start.isoformat()]
+    out_products = []
+    for p in products:
+        mine = sorted([x for x in pages if x["product"] == p["id"]], key=lambda x: (x["date"], x["name"]), reverse=True)
+        out_products.append({"id": p["id"], "name": p["name"],
+                             "pages": [build_page(p, x, last_full, demo) for x in mine]})
 
     payload = {
+        "version": 2,
         "updatedAt": dt.datetime.now(TZ).isoformat(timespec="minutes"),
         "dataThrough": last_full.isoformat(),
         "windowDays": WINDOW,
         "demo": demo,
-        "metrics": METRICS,
-        "releases": out_releases,
-        "daily": series,
+        "metrics": {k: {"label": m["label"], "fmt": m["fmt"]} for k, m in METRICS.items()},
+        "products": out_products,
     }
     os.makedirs(os.path.dirname(OUT_PATH), exist_ok=True)
     with open(OUT_PATH, "w", encoding="utf-8") as f:
-        json.dump(payload, f, ensure_ascii=False, indent=1)
-    print(f"wrote {OUT_PATH}: {len(out_releases)} releases, {len(series)} days")
+        json.dump(payload, f, ensure_ascii=False, separators=(",", ":"))
+    errors = sum(1 for p in out_products for x in p["pages"] if x.get("error"))
+    print(f"wrote {OUT_PATH}: " + ", ".join(f"{p['name']} {len(p['pages'])}개 페이지" for p in out_products)
+          + (f" (조회 실패 {errors}건)" if errors else ""))
 
 
 if __name__ == "__main__":
