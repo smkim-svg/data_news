@@ -10,8 +10,7 @@
                   - path 를 비우면 그 제품 사이트 전체 지표
 
 환경 변수
-  WINDOW_DAYS     전/후 비교 일수 (기본 7)
-  LOOKBACK_DAYS   차트용으로 최소한 받아올 기간 (기본 180)
+  LOOKBACK_DAYS   받아올 기간 (기본 400일: 최근 180일 + 비교용 이전 180일 + 여유)
   TIMEZONE        기본 Asia/Seoul
   GOOGLE_APPLICATION_CREDENTIALS  서비스 계정 JSON 경로
 
@@ -33,13 +32,13 @@ OUT_PATH = os.path.join(ROOT, "site", "data.json")
 PRODUCTS_FILE = os.environ.get("PRODUCTS_FILE", os.path.join(ROOT, "products.json"))
 RELEASES_FILE = os.environ.get("RELEASES_FILE", os.path.join(ROOT, "releases.json"))
 
-# 화면에 보여줄 지표
+# 화면에 보여줄 지표 (기간별 집계는 site/index.html 에서 이 정의대로 계산)
 #   avg      : 일별 값의 평균 (일평균)
 #   weighted : 세션 수로 가중 평균 (비율 지표)
 #   ratio    : 분자 합 / 분모 합
 METRICS = {
+    "activeUsers": {"label": "활성 사용자 (일평균)", "agg": "avg", "fmt": "int"},
     "screenPageViews": {"label": "페이지 조회수 (일평균)", "agg": "avg", "fmt": "int"},
-    "activeUsers": {"label": "사용자 (일평균)", "agg": "avg", "fmt": "int"},
     "sessions": {"label": "세션 (일평균)", "agg": "avg", "fmt": "int"},
     "engagementRate": {"label": "참여율", "agg": "weighted", "fmt": "pct"},
     "avgEngagementTime": {"label": "사용자당 참여 시간", "agg": "ratio", "num": "userEngagementDuration",
@@ -51,10 +50,9 @@ METRICS = {
 RAW = ["screenPageViews", "activeUsers", "sessions", "engagementRate", "userEngagementDuration",
        "keyEvents", "sessionKeyEventRate"]
 
-WINDOW = int(os.environ.get("WINDOW_DAYS", "7"))
-LOOKBACK = int(os.environ.get("LOOKBACK_DAYS", "180"))
+LOOKBACK = int(os.environ.get("LOOKBACK_DAYS", "400"))
 TZ = ZoneInfo(os.environ.get("TIMEZONE", "Asia/Seoul"))
-DATA_LAG_DAYS = 2  # GA4 데이터 확정 지연
+DATA_LAG_DAYS = 1  # 어제까지 (오늘 데이터는 아직 집계 전)
 
 
 # ---------------------------------------------------------------- 설정 파일
@@ -182,61 +180,23 @@ def fill(daily: dict, start: dt.date, end: dt.date) -> dict:
     return out
 
 
-def derive(row: dict) -> dict:
-    """GA4 원본 값 → 화면 지표 (하루 단위)."""
-    res = {}
-    for k, m in METRICS.items():
-        if m["agg"] == "ratio":
-            den = row.get(m["den"], 0)
-            res[k] = row.get(m["num"], 0) / den if den else 0.0
-        else:
-            res[k] = row.get(k, 0.0)
-    return res
-
-
-def aggregate(daily: dict, start: dt.date, end: dt.date) -> tuple[dict, int]:
-    rows, d = [], start
-    while d <= end:
-        if d.isoformat() in daily:
-            rows.append(daily[d.isoformat()])
-        d += dt.timedelta(days=1)
-    if not rows:
-        return {}, 0
-    sessions = sum(r["sessions"] for r in rows)
-    res = {}
-    for k, m in METRICS.items():
-        if m["agg"] == "avg":
-            res[k] = sum(r[k] for r in rows) / len(rows)
-        elif m["agg"] == "weighted":
-            res[k] = sum(r[k] * r["sessions"] for r in rows) / sessions if sessions else 0.0
-        else:
-            den = sum(r[m["den"]] for r in rows)
-            res[k] = sum(r[m["num"]] for r in rows) / den if den else 0.0
-    return res, len(rows)
-
-
 def build_page(product: dict, page: dict, last_full: dt.date, demo: bool) -> dict:
+    """페이지별 일별 원본 값만 내보내고, 기간별 집계는 화면에서 한다."""
     launch = dt.date.fromisoformat(page["date"])
-    start = min(launch - dt.timedelta(days=WINDOW), last_full - dt.timedelta(days=LOOKBACK))
+    start = min(launch - dt.timedelta(days=30), last_full - dt.timedelta(days=LOOKBACK))
     key = f"{page['date']}|{page['name']}|{'+'.join(page['paths'])}"
     base = {**page, "key": key}
     try:
-        raw = (demo_daily(start, last_full, launch, zlib.crc32(key.encode()), new_page=bool(page["paths"]) and "new" in page["note"])
+        raw = (demo_daily(start, last_full, launch, zlib.crc32(key.encode()), new_page="new" in page["note"])
                if demo else fetch_daily(product["propertyId"], start, last_full, page["paths"], page["match"]))
     except Exception as e:  # 권한 누락이 가장 흔한 원인
         msg = str(e).splitlines()[0][:300]
         print(f"[경고] {product['name']} / {page['name']}: {msg}", file=sys.stderr)
         return {**base, "error": f"GA4 조회 실패: {msg}"}
     raw = fill(raw, start, last_full)
-
-    before, nb = aggregate(raw, launch - dt.timedelta(days=WINDOW), launch - dt.timedelta(days=1))
-    after_end = min(launch + dt.timedelta(days=WINDOW - 1), last_full)
-    after, na = aggregate(raw, launch, after_end) if after_end >= launch else ({}, 0)
-    is_new = bool(page["paths"]) and not before.get("screenPageViews")
-    delta = {k: ((after[k] - before[k]) / before[k] * 100) if before.get(k) and k in after else None for k in METRICS}
-    series = [{"date": d, **derive(v)} for d, v in sorted(raw.items())]
-    return {**base, "before": before, "after": after, "deltaPct": delta, "beforeDays": nb, "afterDays": na,
-            "complete": na >= WINDOW, "isNew": is_new, "daily": series}
+    # [날짜, RAW 순서대로 값...] 형태로 압축
+    daily = [[d] + [round(v[n], 4) for n in RAW] for d, v in sorted(raw.items())]
+    return {**base, "daily": daily}
 
 
 def main() -> None:
@@ -264,12 +224,12 @@ def main() -> None:
                              "pages": [build_page(p, x, last_full, demo) for x in mine]})
 
     payload = {
-        "version": 2,
+        "version": 3,
         "updatedAt": dt.datetime.now(TZ).isoformat(timespec="minutes"),
         "dataThrough": last_full.isoformat(),
-        "windowDays": WINDOW,
+        "raw": RAW,
         "demo": demo,
-        "metrics": {k: {"label": m["label"], "fmt": m["fmt"]} for k, m in METRICS.items()},
+        "metrics": METRICS,
         "products": out_products,
     }
     os.makedirs(os.path.dirname(OUT_PATH), exist_ok=True)
