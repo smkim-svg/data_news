@@ -73,6 +73,7 @@
   .seg button + button { border-left: 1px solid var(--line); }
   .seg button[aria-pressed="true"] { background: var(--accent); color: #fff; }
   .dates { display: inline-flex; align-items: center; gap: 6px; }
+  #block { min-width: 230px; }
   .dates input[type="date"] { font-size: 13px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 5px 8px; min-width: 140px; }
   .dates input[type="date"]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
   .compare { color: var(--muted); font-size: 12px; margin-bottom: 14px; }
@@ -134,9 +135,10 @@
       </div>
 
       <div class="period" role="group" aria-label="조회 기간">
-        <div class="seg" id="presets">
-          <button data-days="7">최근 7일</button><button data-days="14">14일</button><button data-days="30">30일</button><button data-days="90">90일</button><button data-days="180">180일</button>
+        <div class="seg" id="units">
+          <button data-unit="w1">1주</button><button data-unit="w2">2주</button><button data-unit="w3">3주</button><button data-unit="w6">6주</button><button data-unit="m1">1달</button><button data-unit="m6">6개월</button>
         </div>
+        <select id="block" aria-label="기간 선택"></select>
         <div class="dates">
           <input type="date" id="from" aria-label="시작일">
           <span class="sub">~</span>
@@ -147,7 +149,7 @@
 
       <div id="kpi-error" class="error" hidden></div>
       <div class="kpis" id="kpis"></div>
-      <div class="note">큰 숫자는 선택한 기간 값, 배지는 바로 앞 같은 길이 기간 대비 변화율입니다. 합계 지표는 일평균, 비율 지표는 세션 가중 평균으로 계산해요.</div>
+      <div class="note">큰 숫자는 선택한 기간 값, 배지는 바로 앞 기간 대비 변화율입니다. 진행 중인 기간은 이전 기간의 같은 일수와 비교해요. 합계 지표는 일평균, 비율 지표는 세션 가중 평균으로 계산해요.</div>
     </section>
 
     <section class="card" id="chart-card">
@@ -170,7 +172,11 @@ const $ = (id) => document.getElementById(id);
 const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
 const WEEK = ["일", "월", "화", "수", "목", "금", "토"];
 const PRIMARY = "activeUsers";
-const PRESETS = [7, 14, 30, 90, 180];
+// 기간 단위: 주는 월~일로 끊고, 달은 1일~말일로 끊는다
+const UNITS = {
+  w1: { kind: "week", n: 1, name: "주" }, w2: { kind: "week", n: 2, name: "2주" }, w3: { kind: "week", n: 3, name: "3주" },
+  w6: { kind: "week", n: 6, name: "6주" }, m1: { kind: "month", n: 1, name: "달" }, m6: { kind: "month", n: 6, name: "6개월" },
+};
 const addDays = (iso, n) => { const d = new Date(iso + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
 const diffDays = (a, b) => Math.round((new Date(b + "T00:00:00Z") - new Date(a + "T00:00:00Z")) / 86400000);
 const shortDate = (iso) => `${+iso.slice(5, 7)}/${+iso.slice(8, 10)}`;
@@ -195,7 +201,7 @@ function deltaHtml(c) {
 
 // ---------- 집계 (일별 원본 값 → 기간 값)
 let DATA, IDX, P, SEL, chart;
-let PERIOD = { days: 30, from: null, to: null };   // days 가 있으면 "오늘(데이터 기준일)까지 최근 N일"
+let PERIOD = { unit: "w1", start: null };   // unit+start(블록 시작일) 또는 { unit: null, from, to } (직접 선택)
 
 function rowsIn(page, from, to) { return page.daily.filter((r) => r[0] >= from && r[0] <= to); }
 function aggregate(rows, key) {
@@ -214,11 +220,61 @@ function dayValue(r, key) {
   if (m.agg === "ratio") { const den = r[IDX[m.den]]; return den ? r[IDX[m.num]] / den : 0; }
   return r[IDX[key]];
 }
+// ---------- 달력 기준 기간 계산
+const mondayOf = (iso) => addDays(iso, -((new Date(iso + "T00:00:00Z").getUTCDay() + 6) % 7));
+const monthStart = (iso, back = 0) => { const d = new Date(iso.slice(0, 7) + "-01T00:00:00Z"); d.setUTCMonth(d.getUTCMonth() - back); return d.toISOString().slice(0, 10); };
+const monthEnd = (iso) => addDays(monthStart(iso, -1), -1);
+const minIso = (a, b) => (a < b ? a : b);
+/** 주차: 그 주의 목요일이 속한 달 기준 (10/26~11/1 주 → 10월 5주차) */
+function weekName(monday) {
+  const thu = addDays(monday, 3);
+  return `${+thu.slice(5, 7)}월 ${Math.ceil(+thu.slice(8, 10) / 7)}주차`;
+}
+/** 단위별 선택 가능한 기간 목록 (최신순). start=블록 시작일, end=블록 끝(오늘 기준 잘림), fullEnd=원래 끝 */
+function blocks(unit) {
+  const u = UNITS[unit], last = DATA.dataThrough, first = DATA.dataFrom, out = [];
+  if (u.kind === "week") {
+    for (let mon = mondayOf(last); out.length < 80; mon = addDays(mon, -7)) {
+      const start = addDays(mon, -7 * (u.n - 1));
+      if (start < first) break;
+      const fullEnd = addDays(mon, 6), end = minIso(fullEnd, last);
+      const name = u.n === 1 ? weekName(mon) : `${weekName(start)} ~ ${weekName(mon)}`;
+      out.push({ start, end, fullEnd, name });
+    }
+  } else {
+    for (let back = 0; out.length < 40; back++) {
+      const lastMonth = monthStart(last, back), start = monthStart(lastMonth, u.n - 1);
+      if (start < first) break;
+      const fullEnd = monthEnd(lastMonth), end = minIso(fullEnd, last);
+      const ym = (iso) => `${iso.slice(0, 4)}년 ${+iso.slice(5, 7)}월`;
+      const name = u.n === 1 ? ym(start) : `${ym(start)} ~ ${+lastMonth.slice(5, 7)}월`;
+      out.push({ start, end, fullEnd, name });
+    }
+  }
+  return out.map((b) => ({ ...b, partial: b.end < b.fullEnd, days: diffDays(b.start, b.end) + 1 }));
+}
+function currentBlock() {
+  if (!PERIOD.unit) return null;
+  const list = blocks(PERIOD.unit);
+  const picked = list.find((b) => b.start === PERIOD.start);
+  if (picked) return picked;
+  // 기본값: 주 단위는 진행 중인 주까지 포함한 최신, 달 단위는 마지막으로 끝난 달 (예: 11/1 기준 → 10월)
+  return (UNITS[PERIOD.unit].kind === "month" && list.find((b) => !b.partial)) || list[0];
+}
+/** 선택 기간과 비교 기간. 진행 중인 기간은 이전 기간의 같은 일수만큼과 비교 */
 function range() {
-  const to = PERIOD.days ? DATA.dataThrough : PERIOD.to;
-  const from = PERIOD.days ? addDays(to, -(PERIOD.days - 1)) : PERIOD.from;
-  const n = diffDays(from, to) + 1;
-  return { from, to, n, pFrom: addDays(from, -n), pTo: addDays(from, -1) };
+  const b = currentBlock();
+  if (!b) {
+    const n = diffDays(PERIOD.from, PERIOD.to) + 1;
+    return { from: PERIOD.from, to: PERIOD.to, n, pFrom: addDays(PERIOD.from, -n), pTo: addDays(PERIOD.from, -1), label: `${shortDate(PERIOD.from)}~${shortDate(PERIOD.to)}`, prevName: `이전 ${n}일` };
+  }
+  const u = UNITS[PERIOD.unit];
+  const pFrom = u.kind === "week" ? addDays(b.start, -7 * u.n) : monthStart(b.start, u.n);
+  const pFullEnd = addDays(b.start, -1);
+  const pTo = b.partial ? minIso(addDays(pFrom, b.days - 1), pFullEnd) : pFullEnd;
+  const prevName = u.kind === "week" ? (u.n === 1 ? "이전 주" : `이전 ${u.n}주`) : (u.n === 1 ? "이전 달" : `이전 ${u.n}개월`);
+  return { from: b.start, to: b.end, n: b.days, pFrom, pTo, label: b.name + (b.partial ? ` (${b.days}일)` : ""),
+           prevName: b.partial ? `${prevName}의 같은 ${b.days}일` : prevName };
 }
 /** 페이지의 선택 기간 vs 이전 같은 길이 기간 비교 */
 function compare(page, key) {
@@ -234,14 +290,15 @@ function compare(page, key) {
 // ---------- 주소창 상태 (#product=…&page=…&days=30 또는 &from=…&to=…)
 function readHash() {
   const h = new URLSearchParams(location.hash.slice(1));
-  if (h.get("from") && h.get("to")) PERIOD = { days: 0, from: h.get("from"), to: h.get("to") };
-  else if (PRESETS.includes(+h.get("days"))) PERIOD = { days: +h.get("days"), from: null, to: null };
+  if (h.get("from") && h.get("to")) PERIOD = { unit: null, from: h.get("from"), to: h.get("to") };
+  else if (UNITS[h.get("unit")]) PERIOD = { unit: h.get("unit"), start: h.get("start") };
   return { product: h.get("product"), page: h.get("page") };
 }
 function writeHash() {
   const h = new URLSearchParams({ product: P.id });
   if (SEL) h.set("page", SEL.key);
-  if (PERIOD.days) h.set("days", PERIOD.days); else { h.set("from", PERIOD.from); h.set("to", PERIOD.to); }
+  if (PERIOD.unit) { h.set("unit", PERIOD.unit); const b = currentBlock(); if (b) h.set("start", b.start); }
+  else { h.set("from", PERIOD.from); h.set("to", PERIOD.to); }
   history.replaceState(null, "", "#" + h.toString());
 }
 
@@ -281,16 +338,22 @@ function renderList() {
     renderDetail(); writeHash();
   });
 }
-const periodLabel = () => (PERIOD.days ? `최근 ${PERIOD.days}일` : `${shortDate(PERIOD.from)}~${shortDate(PERIOD.to)}`);
+const periodLabel = () => range().label;
 
 // ---------- 오른쪽 상세
 function syncPeriodControls() {
   const R = range();
-  document.querySelectorAll("#presets button").forEach((b) => b.setAttribute("aria-pressed", String(+b.dataset.days === PERIOD.days)));
-  const min = SEL && SEL.daily ? SEL.daily[0][0] : "";
-  for (const id of ["from", "to"]) { $(id).min = min; $(id).max = DATA.dataThrough; }
+  document.querySelectorAll("#units button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.unit === PERIOD.unit)));
+  const sel = $("block");
+  sel.hidden = !PERIOD.unit;
+  if (PERIOD.unit) {
+    const cur = currentBlock();
+    sel.innerHTML = blocks(PERIOD.unit).map((b) =>
+      `<option value="${b.start}"${b.start === cur.start ? " selected" : ""}>${esc(b.name)} · ${shortDate(b.start)}~${shortDate(b.end)}${b.partial ? ` (진행 중 ${b.days}일)` : ""}</option>`).join("");
+  }
+  for (const id of ["from", "to"]) { $(id).min = DATA.dataFrom; $(id).max = DATA.dataThrough; }
   $("from").value = R.from; $("to").value = R.to;
-  $("compare").textContent = `${longDate(R.from)} ~ ${longDate(R.to)} (${R.n}일) · 이전 ${R.n}일(${shortDate(R.pFrom)}~${shortDate(R.pTo)}) 대비`;
+  $("compare").textContent = `${R.label} · ${longDate(R.from)} ~ ${longDate(R.to)} (${R.n}일) · ${R.prevName}(${shortDate(R.pFrom)}~${shortDate(R.pTo)}) 대비`;
 }
 
 function renderDetail() {
@@ -338,6 +401,14 @@ function drawChart(metric) {
 
   const plugin = {
     id: "releaseMarks",
+    beforeDatasetsDraw(c) {
+      // 월요일마다 옅은 세로선 (주 단위 구분)
+      if (labels.length > 100) return;
+      const { ctx, chartArea: ar, scales: { x } } = c;
+      ctx.save(); ctx.strokeStyle = css("--line"); ctx.lineWidth = 1;
+      labels.forEach((d, i) => { if (i && dow(d) === "월") { const px = x.getPixelForValue(i) - (x.getPixelForValue(1) - x.getPixelForValue(0)) / 2; ctx.beginPath(); ctx.moveTo(px, ar.top); ctx.lineTo(px, ar.bottom); ctx.stroke(); } });
+      ctx.restore();
+    },
     afterDatasetsDraw(c) {
       const { ctx, chartArea: a, scales: { x } } = c;
       ctx.save();
@@ -393,15 +464,15 @@ function drawChart(metric) {
 }
 
 // ---------- 기간 선택
-function setPreset(days) { PERIOD = { days, from: null, to: null }; renderAll(); }
+function setUnit(unit) { PERIOD = { unit, start: null }; renderAll(); }
+function setBlock(start) { PERIOD = { unit: PERIOD.unit, start }; renderAll(); }
 function setCustom() {
   let f = $("from").value, t = $("to").value;
   if (!f || !t) return;
   if (f > t) [f, t] = [t, f];
   if (t > DATA.dataThrough) t = DATA.dataThrough;
-  // 같은 날짜가 프리셋과 일치하면 프리셋으로
-  const n = diffDays(f, t) + 1;
-  PERIOD = t === DATA.dataThrough && PRESETS.includes(n) ? { days: n, from: null, to: null } : { days: 0, from: f, to: t };
+  if (f < DATA.dataFrom) f = DATA.dataFrom;
+  PERIOD = { unit: null, from: f, to: t };
   renderAll();
 }
 
@@ -423,7 +494,9 @@ fetch("data.json", { cache: "no-store" })
     sel.innerHTML = Object.entries(data.metrics).map(([k, m]) => `<option value="${k}">${esc(m.label)}</option>`).join("");
     sel.value = PRIMARY;
     sel.onchange = () => drawChart(sel.value);
-    document.querySelectorAll("#presets button").forEach((b) => b.onclick = () => setPreset(+b.dataset.days));
+    DATA.dataFrom = data.products.flatMap((p) => p.pages).filter((p) => p.daily).map((p) => p.daily[0][0]).sort().at(-1) || data.dataThrough;
+    document.querySelectorAll("#units button").forEach((b) => b.onclick = () => setUnit(b.dataset.unit));
+    $("block").addEventListener("change", (e) => setBlock(e.target.value));
     $("from").addEventListener("change", setCustom);
     $("to").addEventListener("change", setCustom);
     const h = readHash();
