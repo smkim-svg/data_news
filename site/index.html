@@ -10,14 +10,14 @@
     color-scheme: light;
     --bg: #f6f6f4; --surface: #ffffff; --surface-2: #fafaf8; --text: #1f1f1d; --muted: #6b6b66; --line: #e4e3df;
     --accent: #2f6fde; --accent-soft: #eaf1fd; --up: #18794e; --down: #c4321f; --up-bg: #e6f4ec; --down-bg: #fbe9e6;
-    --release: #b8860b; --badge: #efeee9; --daily: rgba(47,111,222,0.35);
+    --release: #b8860b; --badge: #efeee9; --cmp: #9a9a93;
   }
   @media (prefers-color-scheme: dark) {
     :root {
       color-scheme: dark;
       --bg: #141413; --surface: #1e1e1c; --surface-2: #232321; --text: #ededea; --muted: #9d9d97; --line: #33332f;
       --accent: #6d9cf0; --accent-soft: #1f2a3d; --up: #4cc38a; --down: #f2735f; --up-bg: #183527; --down-bg: #3a1c17;
-      --release: #e0b448; --badge: #2b2b28; --daily: rgba(109,156,240,0.40);
+      --release: #e0b448; --badge: #2b2b28; --cmp: #85857f;
     }
   }
   * { box-sizing: border-box; }
@@ -76,12 +76,20 @@
   #block { min-width: 230px; }
   .dates input[type="date"] { font-size: 13px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 5px 8px; min-width: 140px; }
   .dates input[type="date"]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
-  .compare { color: var(--muted); font-size: 12px; margin-bottom: 14px; }
+  .period-2 { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin-bottom: 14px; }
+  .seg-sm button { padding: 5px 10px; font-size: 12px; }
+  .compare { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+  .compare b { color: var(--text); font-weight: 600; }
+  .compare .vs { margin: 0 4px; font-weight: 600; }
 
   .kpis { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 12px; }
-  .tile { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
-  .tile.primary { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+  .tile { display: block; width: 100%; text-align: left; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; cursor: pointer; }
+  .tile > span { display: block; }
+  .tile:hover { border-color: var(--muted); }
+  .tile[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+  .tile:focus-visible, .ch tbody tr:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .tile .k { color: var(--muted); font-size: 12px; }
+  .tile .hint { font-size: 10px; background: var(--badge); border-radius: 4px; padding: 0 4px; margin-left: 2px; }
   .tile .v { font-size: 22px; font-weight: 650; margin: 2px 0 4px; font-variant-numeric: tabular-nums; }
   .tile .ba { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; margin-left: 6px; }
   .delta { display: inline-block; padding: 1px 7px; border-radius: 6px; font-weight: 600; font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -96,11 +104,27 @@
   .legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 6px 0 10px; color: var(--muted); font-size: 12px; }
   .legend > span { display: inline-flex; align-items: center; gap: 6px; }
   .sw { display: inline-block; width: 18px; height: 10px; border-radius: 2px; }
-  .sw-avg { height: 3px; background: var(--accent); }
+  .sw-cur { height: 3px; background: var(--accent); }
+  .sw-cmp { height: 0; border-top: 2px dashed var(--cmp); border-radius: 0; }
   .sw-rel { height: 0; width: 14px; border-top: 2px dashed var(--release); border-radius: 0; }
   .chart-wrap { position: relative; height: 340px; }
   .note { color: var(--muted); font-size: 12px; margin-top: 12px; }
   .error { color: var(--down); }
+  .ch-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 4px 12px; margin: 24px 0 8px; padding-top: 16px; border-top: 1px solid var(--line); }
+  .ch-head h3 { font-size: 14px; margin: 0; }
+  .table-scroll { overflow-x: auto; }
+  table.ch { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+  .ch th { color: var(--muted); font-weight: 500; font-size: 12px; text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  .ch td { padding: 9px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  .ch td .sub { font-size: 11px; margin-left: 4px; }
+  .ch .num { text-align: right; }
+  .ch .muted { color: var(--muted); }
+  .ch tbody tr { cursor: pointer; }
+  .ch tbody tr:hover { background: var(--surface-2); }
+  .ch tbody tr[aria-selected="true"] { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
+  .bar { display: inline-block; width: 60px; height: 6px; background: var(--badge); border-radius: 3px; margin-right: 8px; vertical-align: 1px; overflow: hidden; }
+  .bar i { display: block; height: 100%; background: var(--accent); border-radius: 3px; }
+  #chart-sub a { color: var(--accent); }
 </style>
 </head>
 <body>
@@ -136,7 +160,7 @@
 
       <div class="period" role="group" aria-label="조회 기간">
         <div class="seg" id="units">
-          <button data-unit="w1">1주</button><button data-unit="w2">2주</button><button data-unit="w3">3주</button><button data-unit="w6">6주</button><button data-unit="m1">1달</button><button data-unit="m6">6개월</button>
+          <button data-unit="w1">1주</button><button data-unit="w2">2주</button><button data-unit="w3">3주</button><button data-unit="m1">1달</button><button data-unit="m2">2달</button><button data-unit="m3">3달</button><button data-unit="m6">6개월</button><button data-unit="since">배포 후~현재</button>
         </div>
         <select id="block" aria-label="기간 선택"></select>
         <div class="dates">
@@ -145,24 +169,40 @@
           <input type="date" id="to" aria-label="종료일">
         </div>
       </div>
-      <div class="compare" id="compare"></div>
+      <div class="period-2">
+        <div class="seg seg-sm" id="modes" role="group" aria-label="비교 기준">
+          <button data-mode="prev">이전 기간 대비</button><button data-mode="yoy">전년 같은 기간 대비</button>
+        </div>
+        <div class="compare" id="compare"></div>
+      </div>
 
       <div id="kpi-error" class="error" hidden></div>
       <div class="kpis" id="kpis"></div>
-      <div class="note">큰 숫자는 선택한 기간 값, 배지는 바로 앞 기간 대비 변화율입니다. 진행 중인 기간은 이전 기간의 같은 일수와 비교해요. 합계 지표는 일평균, 비율 지표는 세션 가중 평균으로 계산해요.</div>
+      <div class="note" id="kpi-note"></div>
     </section>
 
     <section class="card" id="chart-card">
       <div class="row">
-        <h2 id="chart-title">일별 추이</h2>
+        <div>
+          <h2 id="chart-title">일별 추이</h2>
+          <div class="sub" id="chart-sub"></div>
+        </div>
         <select id="metric" aria-label="지표 선택"></select>
       </div>
       <div class="legend">
-        <span><i class="sw sw-avg"></i>일별 값</span>
+        <span><i class="sw sw-cur"></i><span id="lg-cur">선택 기간</span></span>
+        <span><i class="sw sw-cmp"></i><span id="lg-cmp">비교 기간</span></span>
         <span><i class="sw sw-rel"></i>배포일</span>
         <span id="rel-out" hidden></span>
       </div>
       <div class="chart-wrap"><canvas id="chart" role="img" aria-label="선택한 페이지의 기간별 지표 추이"></canvas></div>
+
+      <div class="ch-head">
+        <h3 id="ch-title">채널별</h3>
+        <span class="sub">행을 누르면 위 차트가 그 채널로 바뀌어요</span>
+      </div>
+      <div class="table-scroll"><table class="ch" id="ch-table"></table></div>
+      <div class="note">채널은 GA4 기본 채널 그룹 기준이에요. 한 사람이 여러 채널로 들어올 수 있어서 채널별 사용자 합은 전체보다 클 수 있어요.</div>
     </section>
   </main>
 </div>
@@ -172,18 +212,30 @@ const $ = (id) => document.getElementById(id);
 const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
 const WEEK = ["일", "월", "화", "수", "목", "금", "토"];
 const PRIMARY = "activeUsers";
-// 기간 단위: 주는 월~일로 끊고, 달은 1일~말일로 끊는다
+// 기간 단위: 주는 월~일, 달은 1일~말일, since = 이 페이지 배포일부터 현재까지
 const UNITS = {
-  w1: { kind: "week", n: 1, name: "주" }, w2: { kind: "week", n: 2, name: "2주" }, w3: { kind: "week", n: 3, name: "3주" },
-  w6: { kind: "week", n: 6, name: "6주" }, m1: { kind: "month", n: 1, name: "달" }, m6: { kind: "month", n: 6, name: "6개월" },
+  w1: { kind: "week", n: 1 }, w2: { kind: "week", n: 2 }, w3: { kind: "week", n: 3 },
+  m1: { kind: "month", n: 1 }, m2: { kind: "month", n: 2 }, m3: { kind: "month", n: 3 }, m6: { kind: "month", n: 6 },
+  since: { kind: "since" },
 };
 const addDays = (iso, n) => { const d = new Date(iso + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
+const addYears = (iso, n) => { const y = +iso.slice(0, 4) + n, md = iso.slice(5); return md === "02-29" ? `${y}-02-28` : `${y}-${md}`; };
 const diffDays = (a, b) => Math.round((new Date(b + "T00:00:00Z") - new Date(a + "T00:00:00Z")) / 86400000);
 const shortDate = (iso) => `${+iso.slice(5, 7)}/${+iso.slice(8, 10)}`;
+const ymd = (iso) => `${iso.slice(2, 4)}.${iso.slice(5, 7)}.${iso.slice(8, 10)}`;
 const dow = (iso) => WEEK[new Date(iso + "T00:00:00Z").getUTCDay()];
 const longDate = (iso) => `${iso.slice(0, 4)}년 ${+iso.slice(5, 7)}월 ${+iso.slice(8, 10)}일 (${dow(iso)})`;
 const esc = (t) => String(t).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const pathText = (r) => (r.paths && r.paths.length ? r.paths.join(", ") + (r.match === "prefix" ? " (하위 경로 포함)" : "") : "사이트 전체");
+const mondayOf = (iso) => addDays(iso, -((new Date(iso + "T00:00:00Z").getUTCDay() + 6) % 7));
+const monthStart = (iso, back = 0) => { const d = new Date(iso.slice(0, 7) + "-01T00:00:00Z"); d.setUTCMonth(d.getUTCMonth() - back); return d.toISOString().slice(0, 10); };
+const monthEnd = (iso) => addDays(monthStart(iso, -1), -1);
+const minIso = (a, b) => (a < b ? a : b), maxIso = (a, b) => (a > b ? a : b);
+const CH_KO = { "Organic Search": "자연 검색", "Paid Search": "유료 검색", "Direct": "직접 유입", "Referral": "추천(링크)", "Organic Social": "자연 소셜",
+  "Paid Social": "유료 소셜", "Email": "이메일", "Display": "디스플레이", "Affiliates": "제휴", "Organic Video": "자연 동영상", "Paid Video": "유료 동영상",
+  "Cross-network": "교차 네트워크", "Paid Other": "기타 유료", "Organic Shopping": "자연 쇼핑", "Paid Shopping": "유료 쇼핑", "SMS": "SMS",
+  "Mobile Push Notifications": "모바일 푸시", "Audio": "오디오", "Unassigned": "미분류", "(not set)": "(미설정)" };
+const chName = (c) => (CH_KO[c] ? `${CH_KO[c]} <span class="sub">${esc(c)}</span>` : esc(c));
 
 function fmt(v, kind) {
   if (v == null || Number.isNaN(v)) return "–";
@@ -191,19 +243,31 @@ function fmt(v, kind) {
   if (kind === "sec") { const m = Math.floor(v / 60), s = Math.round(v % 60); return m ? `${m}분 ${String(s).padStart(2, "0")}초` : `${s}초`; }
   return Math.round(v).toLocaleString("ko-KR");
 }
-function deltaHtml(c) {
+function deltaHtml(c, key) {
   if (c.state === "new") return '<span class="delta new">신규</span>';
   if (c.delta == null) return '<span class="delta flat">–</span>';
-  const d = c.delta, cls = Math.abs(d) < 1 ? "flat" : d > 0 ? "up" : "down";
-  const arrow = cls === "up" ? "▲ " : cls === "down" ? "▼ " : "";
-  return `<span class="delta ${cls}">${arrow}${Math.abs(d).toFixed(1)}%</span>`;
+  const d = c.delta, lower = DATA.metrics[key].lowerIsBetter;
+  if (Math.abs(d) < 1) return `<span class="delta flat">${d > 0 ? "+" : ""}${d.toFixed(1)}%</span>`;
+  const good = lower ? d < 0 : d > 0;
+  return `<span class="delta ${good ? "up" : "down"}">${d > 0 ? "▲" : "▼"} ${Math.abs(d).toFixed(1)}%</span>`;
 }
 
-// ---------- 집계 (일별 원본 값 → 기간 값)
+// ---------- 데이터 접근
 let DATA, IDX, P, SEL, chart;
-let PERIOD = { unit: "w1", start: null };   // unit+start(블록 시작일) 또는 { unit: null, from, to } (직접 선택)
-
-function rowsIn(page, from, to) { return page.daily.filter((r) => r[0] >= from && r[0] <= to); }
+let PERIOD = { unit: "w1", start: null };   // unit+start 또는 { unit: null, from, to } (직접 선택)
+let MODE = "prev";                          // prev: 이전 기간 대비, yoy: 전년 같은 기간 대비
+let CH = null;                              // 차트에 보여줄 채널 (null = 전체)
+let METRIC = PRIMARY;
+const ZERO = () => new Array(DATA.raw.length).fill(0);
+const seriesCache = new Map();
+/** 페이지의 일별 행 [날짜, 값…]. ch 를 주면 그 채널만 */
+function series(page, ch) {
+  if (!ch) return page.daily;
+  const k = page.key + "§" + ch;
+  if (!seriesCache.has(k)) seriesCache.set(k, page.daily.map((r, i) => [r[0], ...((page.channels[ch] || [])[i] || ZERO())]));
+  return seriesCache.get(k);
+}
+function rowsIn(rows, from, to) { return rows.filter((r) => r[0] >= from && r[0] <= to); }
 function aggregate(rows, key) {
   if (!rows.length) return null;
   const m = DATA.metrics[key], v = (r, k) => r[IDX[k]];
@@ -220,78 +284,85 @@ function dayValue(r, key) {
   if (m.agg === "ratio") { const den = r[IDX[m.den]]; return den ? r[IDX[m.num]] / den : 0; }
   return r[IDX[key]];
 }
-// ---------- 달력 기준 기간 계산
-const mondayOf = (iso) => addDays(iso, -((new Date(iso + "T00:00:00Z").getUTCDay() + 6) % 7));
-const monthStart = (iso, back = 0) => { const d = new Date(iso.slice(0, 7) + "-01T00:00:00Z"); d.setUTCMonth(d.getUTCMonth() - back); return d.toISOString().slice(0, 10); };
-const monthEnd = (iso) => addDays(monthStart(iso, -1), -1);
-const minIso = (a, b) => (a < b ? a : b);
-/** 주차: 그 주의 목요일이 속한 달 기준 (10/26~11/1 주 → 10월 5주차) */
-function weekName(monday) {
-  const thu = addDays(monday, 3);
-  return `${+thu.slice(5, 7)}월 ${Math.ceil(+thu.slice(8, 10) / 7)}주차`;
-}
-/** 단위별 선택 가능한 기간 목록 (최신순). start=블록 시작일, end=블록 끝(오늘 기준 잘림), fullEnd=원래 끝 */
+
+// ---------- 달력 기준 기간
+/** 주차: 그 주 목요일이 속한 달 기준 (10/26~11/1 주 → 10월 5주차) */
+function weekName(monday) { const thu = addDays(monday, 3); return `${+thu.slice(5, 7)}월 ${Math.ceil(+thu.slice(8, 10) / 7)}주차`; }
 function blocks(unit) {
   const u = UNITS[unit], last = DATA.dataThrough, first = DATA.dataFrom, out = [];
   if (u.kind === "week") {
     for (let mon = mondayOf(last); out.length < 80; mon = addDays(mon, -7)) {
       const start = addDays(mon, -7 * (u.n - 1));
       if (start < first) break;
-      const fullEnd = addDays(mon, 6), end = minIso(fullEnd, last);
-      const name = u.n === 1 ? weekName(mon) : `${weekName(start)} ~ ${weekName(mon)}`;
-      out.push({ start, end, fullEnd, name });
+      const fullEnd = addDays(mon, 6);
+      out.push({ start, end: minIso(fullEnd, last), fullEnd, name: u.n === 1 ? weekName(mon) : `${weekName(start)} ~ ${weekName(mon)}` });
     }
-  } else {
+  } else if (u.kind === "month") {
     for (let back = 0; out.length < 40; back++) {
       const lastMonth = monthStart(last, back), start = monthStart(lastMonth, u.n - 1);
       if (start < first) break;
-      const fullEnd = monthEnd(lastMonth), end = minIso(fullEnd, last);
-      const ym = (iso) => `${iso.slice(0, 4)}년 ${+iso.slice(5, 7)}월`;
-      const name = u.n === 1 ? ym(start) : `${ym(start)} ~ ${+lastMonth.slice(5, 7)}월`;
-      out.push({ start, end, fullEnd, name });
+      const fullEnd = monthEnd(lastMonth), ym = (iso) => `${iso.slice(0, 4)}년 ${+iso.slice(5, 7)}월`;
+      out.push({ start, end: minIso(fullEnd, last), fullEnd, name: u.n === 1 ? ym(start) : `${ym(start)} ~ ${+lastMonth.slice(5, 7)}월` });
     }
   }
   return out.map((b) => ({ ...b, partial: b.end < b.fullEnd, days: diffDays(b.start, b.end) + 1 }));
 }
 function currentBlock() {
-  if (!PERIOD.unit) return null;
-  const list = blocks(PERIOD.unit);
-  const picked = list.find((b) => b.start === PERIOD.start);
+  if (!PERIOD.unit || PERIOD.unit === "since") return null;
+  const list = blocks(PERIOD.unit), picked = list.find((b) => b.start === PERIOD.start);
   if (picked) return picked;
-  // 기본값: 주 단위는 진행 중인 주까지 포함한 최신, 달 단위는 마지막으로 끝난 달 (예: 11/1 기준 → 10월)
+  // 기본값: 주 단위는 진행 중인 주까지 포함한 최신, 달 단위는 마지막으로 끝난 달
   return (UNITS[PERIOD.unit].kind === "month" && list.find((b) => !b.partial)) || list[0];
 }
-/** 선택 기간과 비교 기간. 진행 중인 기간은 이전 기간의 같은 일수만큼과 비교 */
+/** 선택 기간 + 비교 기간 */
 function range() {
-  const b = currentBlock();
-  if (!b) {
-    const n = diffDays(PERIOD.from, PERIOD.to) + 1;
-    return { from: PERIOD.from, to: PERIOD.to, n, pFrom: addDays(PERIOD.from, -n), pTo: addDays(PERIOD.from, -1), label: `${shortDate(PERIOD.from)}~${shortDate(PERIOD.to)}`, prevName: `이전 ${n}일` };
+  const last = DATA.dataThrough;
+  let from, to, label, partial = false, fullEnd;
+  if (PERIOD.unit === "since") {
+    from = maxIso(minIso(SEL.date, last), DATA.dataFrom); to = last; label = "배포 후 ~ 현재";
+  } else if (PERIOD.unit) {
+    const b = currentBlock(); ({ start: from, end: to, name: label, partial, fullEnd } = b);
+    if (partial) label += ` (진행 중 ${b.days}일)`;
+  } else {
+    ({ from, to } = PERIOD); label = "직접 선택";
   }
-  const u = UNITS[PERIOD.unit];
-  const pFrom = u.kind === "week" ? addDays(b.start, -7 * u.n) : monthStart(b.start, u.n);
-  const pFullEnd = addDays(b.start, -1);
-  const pTo = b.partial ? minIso(addDays(pFrom, b.days - 1), pFullEnd) : pFullEnd;
-  const prevName = u.kind === "week" ? (u.n === 1 ? "이전 주" : `이전 ${u.n}주`) : (u.n === 1 ? "이전 달" : `이전 ${u.n}개월`);
-  return { from: b.start, to: b.end, n: b.days, pFrom, pTo, label: b.name + (b.partial ? ` (${b.days}일)` : ""),
-           prevName: b.partial ? `${prevName}의 같은 ${b.days}일` : prevName };
+  const n = diffDays(from, to) + 1, u = UNITS[PERIOD.unit] || {};
+  let pFrom, pTo, cmpName;
+  if (MODE === "yoy") {
+    // 주 단위는 52주(364일) 전 → 같은 요일끼리, 그 외는 달력상 1년 전
+    if (u.kind === "week") { pFrom = addDays(from, -364); pTo = addDays(to, -364); }
+    else { pFrom = addYears(from, -1); pTo = u.kind === "month" && !partial ? monthEnd(addYears(to, -1)) : addYears(to, -1); }
+    cmpName = "전년 같은 기간";
+  } else if (PERIOD.unit === "since") {
+    pFrom = addDays(from, -n); pTo = addDays(from, -1); cmpName = "배포 전 같은 일수";
+  } else if (u.kind === "week") {
+    pFrom = addDays(from, -7 * u.n); pTo = addDays(pFrom, n - 1); cmpName = partial ? "이전 기간의 같은 요일까지" : "이전 기간";
+  } else if (u.kind === "month") {
+    pFrom = monthStart(from, u.n); pTo = partial ? minIso(addDays(pFrom, n - 1), addDays(from, -1)) : addDays(from, -1);
+    cmpName = partial ? "이전 기간의 같은 일수" : "이전 기간";
+  } else {
+    pFrom = addDays(from, -n); pTo = addDays(from, -1); cmpName = "이전 같은 일수";
+  }
+  return { from, to, n, pFrom, pTo, label, cmpName };
 }
-/** 페이지의 선택 기간 vs 이전 같은 길이 기간 비교 */
-function compare(page, key) {
-  const R = range();
-  const cur = rowsIn(page, R.from, R.to), prev = rowsIn(page, R.pFrom, R.pTo);
+/** 선택 기간 vs 비교 기간 */
+function compare(rows, key, R = range()) {
+  const cur = rowsIn(rows, R.from, R.to), prev = rowsIn(rows, R.pFrom, R.pTo);
   const c = aggregate(cur, key), p = aggregate(prev, key);
-  const prevUsers = prev.reduce((a, r) => a + r[IDX.activeUsers], 0);
-  if (prev.length < R.n) return { cur: c, prev: p, delta: null, state: "short" };       // 비교 기간 데이터 부족
-  if (!prevUsers && cur.some((r) => r[IDX.activeUsers])) return { cur: c, prev: p, delta: null, state: "new" }; // 이전엔 없던 페이지
+  const need = diffDays(R.pFrom, R.pTo) + 1;
+  const users = (rs) => rs.reduce((a, r) => a + r[IDX.activeUsers], 0);
+  if (prev.length < need) return { cur: c, prev: p, delta: null, state: "short" };
+  if (!users(prev) && users(cur)) return { cur: c, prev: p, delta: null, state: "new" };
   return { cur: c, prev: p, delta: p ? (c - p) / p * 100 : null, state: "ok" };
 }
 
-// ---------- 주소창 상태 (#product=…&page=…&days=30 또는 &from=…&to=…)
+// ---------- 주소창 상태
 function readHash() {
   const h = new URLSearchParams(location.hash.slice(1));
   if (h.get("from") && h.get("to")) PERIOD = { unit: null, from: h.get("from"), to: h.get("to") };
   else if (UNITS[h.get("unit")]) PERIOD = { unit: h.get("unit"), start: h.get("start") };
+  if (h.get("cmp") === "yoy") MODE = "yoy";
+  if (DATA.metrics[h.get("metric")]) METRIC = h.get("metric");
   return { product: h.get("product"), page: h.get("page") };
 }
 function writeHash() {
@@ -299,6 +370,8 @@ function writeHash() {
   if (SEL) h.set("page", SEL.key);
   if (PERIOD.unit) { h.set("unit", PERIOD.unit); const b = currentBlock(); if (b) h.set("start", b.start); }
   else { h.set("from", PERIOD.from); h.set("to", PERIOD.to); }
+  if (MODE === "yoy") h.set("cmp", "yoy");
+  if (METRIC !== PRIMARY) h.set("metric", METRIC);
   history.replaceState(null, "", "#" + h.toString());
 }
 
@@ -311,88 +384,132 @@ function renderTabs() {
 function selectProduct(id, pageKey) {
   P = DATA.products.find((p) => p.id === id) || DATA.products[0];
   SEL = P.pages.find((r) => r.key === pageKey) || P.pages[0] || null;
-  renderTabs(); renderAll();
+  CH = null; renderTabs(); renderAll();
 }
 function renderAll() { renderList(); renderDetail(); writeHash(); }
 
 // ---------- 왼쪽: 배포일별 페이지 목록
 function renderList() {
-  $("list-count").textContent = `활성 사용자 · ${periodLabel()}`;
+  $("list-count").textContent = `활성 사용자 · ${MODE === "yoy" ? "전년 대비" : "이전 대비"}`;
   if (!P.pages.length) {
     $("list").innerHTML = `<li class="empty">아직 등록된 배포 페이지가 없어요.<br><br><code>releases.json</code>에 <code>"product": "${esc(P.id)}"</code>로 페이지를 추가하면 여기에 나타납니다.</li>`;
     return;
   }
   const groups = [];
   P.pages.forEach((r) => { const g = groups.at(-1); if (g && g.date === r.date) g.items.push(r); else groups.push({ date: r.date, items: [r] }); });
+  const keepSel = SEL;
   $("list").innerHTML = groups.map((g) => `
     <li class="group"><div class="gh">${longDate(g.date)} 배포</div><ul>${g.items.map((r) => {
-      const c = r.error ? null : compare(r, PRIMARY);
-      return `<li><button class="item" data-key="${esc(r.key)}" aria-current="${SEL && r.key === SEL.key}">
+      let m = '<span class="delta down">오류</span>';
+      if (!r.error) { SEL = r; const c = compare(r.daily, PRIMARY); m = `${deltaHtml(c, PRIMARY)}<small>${fmt(c.cur, "int")}명/일</small>`; }
+      return `<li><button class="item" data-key="${esc(r.key)}" aria-current="${keepSel && r.key === keepSel.key}">
         <span class="t" title="${esc(r.name)}">${esc(r.name)}</span>
         <span class="d" title="${esc(pathText(r))}">${esc(pathText(r))}</span>
-        <span class="m">${r.error ? '<span class="delta down">오류</span>' : `${deltaHtml(c)}<small>${fmt(c.cur, "int")}명/일</small>`}</span>
-      </button></li>`; }).join("")}</ul></li>`).join("");
+        <span class="m">${m}</span></button></li>`; }).join("")}</ul></li>`).join("");
+  SEL = keepSel;
   $("list").querySelectorAll(".item").forEach((b) => b.onclick = () => {
-    SEL = P.pages.find((r) => r.key === b.dataset.key);
+    SEL = P.pages.find((r) => r.key === b.dataset.key); CH = null;
     $("list").querySelectorAll(".item").forEach((x) => x.setAttribute("aria-current", String(x === b)));
     renderDetail(); writeHash();
   });
 }
-const periodLabel = () => range().label;
 
 // ---------- 오른쪽 상세
-function syncPeriodControls() {
-  const R = range();
+function syncPeriodControls(R) {
   document.querySelectorAll("#units button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.unit === PERIOD.unit)));
-  const sel = $("block");
-  sel.hidden = !PERIOD.unit;
-  if (PERIOD.unit) {
+  document.querySelectorAll("#modes button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.mode === MODE)));
+  const sel = $("block"), showBlocks = PERIOD.unit && PERIOD.unit !== "since";
+  sel.hidden = !showBlocks;
+  if (showBlocks) {
     const cur = currentBlock();
     sel.innerHTML = blocks(PERIOD.unit).map((b) =>
       `<option value="${b.start}"${b.start === cur.start ? " selected" : ""}>${esc(b.name)} · ${shortDate(b.start)}~${shortDate(b.end)}${b.partial ? ` (진행 중 ${b.days}일)` : ""}</option>`).join("");
   }
   for (const id of ["from", "to"]) { $(id).min = DATA.dataFrom; $(id).max = DATA.dataThrough; }
   $("from").value = R.from; $("to").value = R.to;
-  $("compare").textContent = `${R.label} · ${longDate(R.from)} ~ ${longDate(R.to)} (${R.n}일) · ${R.prevName}(${shortDate(R.pFrom)}~${shortDate(R.pTo)}) 대비`;
+  $("compare").innerHTML = `<b>${esc(R.label)}</b> ${ymd(R.from)}~${ymd(R.to)} (${R.n}일) <span class="vs">vs</span> <b>${R.cmpName}</b> ${ymd(R.pFrom)}~${ymd(R.pTo)}`;
 }
 
 function renderDetail() {
   $("detail").hidden = !SEL;
   if (!SEL) return;
-  const r = SEL;
+  const r = SEL, R = range();
   const since = diffDays(r.date, DATA.dataThrough);
   $("rel-date").textContent = `${longDate(r.date)} 배포` + (since >= 0 ? ` · 배포 후 ${since + 1}일째` : "");
   $("rel-title").textContent = r.name;
   $("rel-sub").innerHTML = `${esc(P.name)} · <code class="path">${esc(pathText(r))}</code>`;
   $("rel-link").hidden = !r.url; if (r.url) $("rel-link").href = r.url;
-  syncPeriodControls();
+  syncPeriodControls(R);
 
   $("chart-card").hidden = !!r.error;
   $("kpi-error").hidden = !r.error;
   if (r.error) {
-    $("kpis").innerHTML = "";
+    $("kpis").innerHTML = ""; $("kpi-note").textContent = "";
     $("kpi-error").innerHTML = `${esc(r.error)}<br><span class="sub">서비스 계정이 이 제품의 GA4 속성에 <b>뷰어</b>로 추가됐는지 확인해 주세요.</span>`;
     return;
   }
   $("kpis").innerHTML = Object.entries(DATA.metrics).map(([k, m]) => {
-    const c = compare(r, k);
-    const sub = c.state === "short" ? '<span class="ba" style="margin:0">이전 기간 데이터 부족</span>'
-      : c.state === "new" ? `${deltaHtml(c)}<span class="ba">이전 기간엔 방문 없음</span>`
-      : `${deltaHtml(c)}<span class="ba">이전 ${fmt(c.prev, m.fmt)}</span>`;
-    return `<div class="tile${k === PRIMARY ? " primary" : ""}"><div class="k">${esc(m.label)}</div>
-      <div class="v">${fmt(c.cur, m.fmt)}</div><div>${sub}</div></div>`;
+    const c = compare(r.daily, k, R);
+    const sub = c.state === "short" ? `<span class="ba" style="margin:0">비교 기간 데이터 없음</span>`
+      : c.state === "new" ? `${deltaHtml(c, k)}<span class="ba">비교 기간엔 방문 없음</span>`
+      : `${deltaHtml(c, k)}<span class="ba">비교 ${fmt(c.prev, m.fmt)}</span>`;
+    return `<button class="tile" data-metric="${k}" aria-pressed="${k === METRIC}"><span class="k">${esc(m.label)}${m.lowerIsBetter ? ' <span class="hint">낮을수록 좋음</span>' : ""}</span>
+      <span class="v">${fmt(c.cur, m.fmt)}</span><span>${sub}</span></button>`;
   }).join("");
-  drawChart($("metric").value);
+  $("kpis").querySelectorAll(".tile").forEach((b) => b.onclick = () => setMetric(b.dataset.metric, true));
+  $("kpi-note").textContent = "카드를 누르면 아래에서 그 지표의 일별 추이와 채널별 상세를 볼 수 있어요. 합계 지표는 일평균, 비율 지표는 세션 가중 평균이에요."
+    + (R.label.includes("진행 중") ? " 진행 중인 기간은 비교 기간도 같은 일수만큼만 잘라서 비교해요." : "");
+  renderChannels(R);
+  drawChart(R);
 }
 
-function drawChart(metric) {
-  const meta = DATA.metrics[metric], R = range();
-  const rows = rowsIn(SEL, R.from, R.to);
-  const labels = rows.map((r) => r[0]);
-  const values = rows.map((r) => dayValue(r, metric));
-  $("chart-title").textContent = `${meta.label} · 일별 추이`;
+function setMetric(k, scroll) {
+  METRIC = k; $("metric").value = k;
+  $("kpis").querySelectorAll(".tile").forEach((t) => t.setAttribute("aria-pressed", String(t.dataset.metric === k)));
+  const R = range(); renderChannels(R); drawChart(R); writeHash();
+  if (scroll) $("chart-card").scrollIntoView({ behavior: "smooth", block: "start" });
+}
 
-  // 배포일 표시 (같은 제품의 다른 배포일은 흐리게)
+// ---------- 채널별 상세
+function renderChannels(R) {
+  const m = DATA.metrics[METRIC], chs = Object.keys(SEL.channels || {});
+  const sess = (rows) => rowsIn(rows, R.from, R.to).reduce((a, r) => a + r[IDX.sessions], 0);
+  const totalSess = sess(SEL.daily) || 1;
+  const list = chs.map((ch) => ({ ch, rows: series(SEL, ch) })).map((x) => ({ ...x, s: sess(x.rows) }))
+    .filter((x) => x.s > 0 || rowsIn(x.rows, R.pFrom, R.pTo).some((r) => r[IDX.sessions] > 0))
+    .sort((a, b) => b.s - a.s);
+  $("ch-title").textContent = `채널별 · ${m.label}`;
+  const row = (name, rows, s, key) => {
+    const c = compare(rows, METRIC, R);
+    return `<tr data-ch="${esc(key || "")}" aria-selected="${(key || null) === CH}" tabindex="0">
+      <td>${name}</td><td class="num">${fmt(c.cur, m.fmt)}</td><td class="num muted">${c.state === "short" ? "–" : fmt(c.prev, m.fmt)}</td>
+      <td class="num">${deltaHtml(c, METRIC)}</td>
+      <td class="num"><span class="bar"><i style="width:${Math.round(s / totalSess * 100)}%"></i></span>${(s / totalSess * 100).toFixed(1)}%</td></tr>`;
+  };
+  $("ch-table").innerHTML = `<thead><tr><th>채널</th><th class="num">선택 기간</th><th class="num">${esc(R.cmpName)}</th><th class="num">변화</th><th class="num">세션 비중</th></tr></thead>
+    <tbody>${row("<b>전체</b>", SEL.daily, totalSess, null)}${list.map((x) => row(chName(x.ch), x.rows, x.s, x.ch)).join("")}</tbody>`;
+  $("ch-table").querySelectorAll("tbody tr").forEach((tr) => {
+    const pick = () => { CH = tr.dataset.ch || null; renderChannels(range()); drawChart(range()); };
+    tr.onclick = pick; tr.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pick(); } };
+  });
+}
+
+// ---------- 차트: 선택 기간(실선) + 비교 기간(점선)을 같은 날짜 순서로 겹쳐 보기
+function drawChart(R) {
+  const meta = DATA.metrics[METRIC], rows = series(SEL, CH);
+  const cur = rowsIn(rows, R.from, R.to), prev = rowsIn(rows, R.pFrom, R.pTo);
+  const labels = cur.map((r) => r[0]);
+  const values = cur.map((r) => dayValue(r, METRIC));
+  const prevMap = Object.fromEntries(prev.map((r) => [r[0], r]));
+  const offset = diffDays(R.from, R.pFrom);
+  const prevDates = labels.map((d) => addDays(d, offset));
+  const cmpVals = prevDates.map((d) => (prevMap[d] ? dayValue(prevMap[d], METRIC) : null));
+  $("chart-title").textContent = `${meta.label} · 일별 추이`;
+  $("chart-sub").innerHTML = CH ? `채널: <b>${chName(CH)}</b> · <a href="#" id="ch-clear">전체로 보기</a>` : "전체 채널";
+  if (CH) $("ch-clear").onclick = (e) => { e.preventDefault(); CH = null; renderChannels(range()); drawChart(range()); };
+  $("lg-cur").textContent = `${R.label} (${ymd(R.from)}~${ymd(R.to)})`;
+  $("lg-cmp").textContent = `${R.cmpName} (${ymd(R.pFrom)}~${ymd(R.pTo)})`;
+
   const releaseDates = [...new Set(P.pages.map((p) => p.date))];
   const marks = releaseDates.map((d) => ({ d, i: labels.indexOf(d), mine: d === SEL.date })).filter((m) => m.i >= 0);
   const out = $("rel-out");
@@ -402,11 +519,10 @@ function drawChart(metric) {
   const plugin = {
     id: "releaseMarks",
     beforeDatasetsDraw(c) {
-      // 월요일마다 옅은 세로선 (주 단위 구분)
-      if (labels.length > 100) return;
-      const { ctx, chartArea: ar, scales: { x } } = c;
+      if (labels.length > 100) return;  // 월요일마다 옅은 세로선
+      const { ctx, chartArea: ar, scales: { x } } = c, step = labels.length > 1 ? x.getPixelForValue(1) - x.getPixelForValue(0) : 0;
       ctx.save(); ctx.strokeStyle = css("--line"); ctx.lineWidth = 1;
-      labels.forEach((d, i) => { if (i && dow(d) === "월") { const px = x.getPixelForValue(i) - (x.getPixelForValue(1) - x.getPixelForValue(0)) / 2; ctx.beginPath(); ctx.moveTo(px, ar.top); ctx.lineTo(px, ar.bottom); ctx.stroke(); } });
+      labels.forEach((d, i) => { if (i && dow(d) === "월") { const px = x.getPixelForValue(i) - step / 2; ctx.beginPath(); ctx.moveTo(px, ar.top); ctx.lineTo(px, ar.bottom); ctx.stroke(); } });
       ctx.restore();
     },
     afterDatasetsDraw(c) {
@@ -431,8 +547,10 @@ function drawChart(metric) {
   chart = new Chart($("chart"), {
     type: "line",
     data: { labels, datasets: [
-      { label: meta.label.replace(" (일평균)", ""), data: values, borderColor: css("--accent"), backgroundColor: css("--accent"), borderWidth: 2,
-        pointRadius: few ? 3 : 0, pointHoverRadius: 5, tension: 0.25 },
+      { label: "선택 기간", data: values, borderColor: css("--accent"), backgroundColor: css("--accent"), borderWidth: 2,
+        pointRadius: few ? 3 : 0, pointHoverRadius: 5, tension: 0.25, order: 1 },
+      { label: R.cmpName, data: cmpVals, borderColor: css("--cmp"), backgroundColor: css("--cmp"), borderWidth: 1.5, borderDash: [5, 4],
+        pointRadius: 0, pointHoverRadius: 4, tension: 0.25, spanGaps: true, order: 2 },
     ] },
     options: {
       maintainAspectRatio: false, animation: { duration: 250 },
@@ -442,13 +560,14 @@ function drawChart(metric) {
         legend: { display: false },
         tooltip: {
           backgroundColor: css("--text"), titleColor: css("--surface"), bodyColor: css("--surface"), footerColor: css("--surface"),
-          padding: 10, boxPadding: 4, displayColors: false,
+          padding: 10, boxPadding: 4,
           callbacks: {
             title: (items) => { const d = labels[items[0].dataIndex]; return `${d} (${dow(d)})`; },
-            label: (c) => ` ${c.dataset.label}: ${fmt(c.parsed.y, meta.fmt)}`,
+            label: (c) => c.datasetIndex === 0
+              ? ` ${fmt(c.parsed.y, meta.fmt)}`
+              : ` 비교 ${prevDates[c.dataIndex].slice(2).replaceAll("-", ".")} (${dow(prevDates[c.dataIndex])}): ${fmt(c.parsed.y, meta.fmt)}`,
             footer: (items) => {
-              const d = labels[items[0].dataIndex];
-              const names = P.pages.filter((p) => p.date === d).map((p) => p.name);
+              const d = labels[items[0].dataIndex], names = P.pages.filter((p) => p.date === d).map((p) => p.name);
               return names.length ? [`● 배포: ${names.join(", ")}`] : [];
             },
           },
@@ -463,16 +582,15 @@ function drawChart(metric) {
   });
 }
 
-// ---------- 기간 선택
+// ---------- 기간·비교 선택
 function setUnit(unit) { PERIOD = { unit, start: null }; renderAll(); }
 function setBlock(start) { PERIOD = { unit: PERIOD.unit, start }; renderAll(); }
+function setMode(mode) { MODE = mode; renderAll(); }
 function setCustom() {
   let f = $("from").value, t = $("to").value;
   if (!f || !t) return;
   if (f > t) [f, t] = [t, f];
-  if (t > DATA.dataThrough) t = DATA.dataThrough;
-  if (f < DATA.dataFrom) f = DATA.dataFrom;
-  PERIOD = { unit: null, from: f, to: t };
+  PERIOD = { unit: null, from: maxIso(f, DATA.dataFrom), to: minIso(t, DATA.dataThrough) };
   renderAll();
 }
 
@@ -485,21 +603,22 @@ fetch("/auth/me", { cache: "no-store" })
 fetch("data.json", { cache: "no-store" })
   .then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); })
   .then((data) => {
-    if (data.version !== 3) throw new Error("데이터 형식이 이전 버전입니다. 워크플로를 다시 실행해 주세요.");
+    if (data.version !== 4) throw new Error("데이터 형식이 이전 버전입니다. 워크플로를 다시 실행해 주세요.");
     DATA = data;
     IDX = Object.fromEntries(data.raw.map((k, i) => [k, i + 1]));
+    DATA.dataFrom = data.products.flatMap((p) => p.pages).filter((p) => p.daily).map((p) => p.daily[0][0]).sort().at(-1) || data.dataThrough;
     $("demo").hidden = !data.demo;
     $("meta").textContent = `${longDate(data.dataThrough)}까지 데이터 · 갱신 ${data.updatedAt.replace("T", " ").slice(0, 16)}`;
     const sel = $("metric");
     sel.innerHTML = Object.entries(data.metrics).map(([k, m]) => `<option value="${k}">${esc(m.label)}</option>`).join("");
-    sel.value = PRIMARY;
-    sel.onchange = () => drawChart(sel.value);
-    DATA.dataFrom = data.products.flatMap((p) => p.pages).filter((p) => p.daily).map((p) => p.daily[0][0]).sort().at(-1) || data.dataThrough;
+    sel.onchange = () => setMetric(sel.value);
     document.querySelectorAll("#units button").forEach((b) => b.onclick = () => setUnit(b.dataset.unit));
+    document.querySelectorAll("#modes button").forEach((b) => b.onclick = () => setMode(b.dataset.mode));
     $("block").addEventListener("change", (e) => setBlock(e.target.value));
     $("from").addEventListener("change", setCustom);
     $("to").addEventListener("change", setCustom);
     const h = readHash();
+    sel.value = METRIC;
     selectProduct(h.product || data.products[0].id, h.page);
   })
   .catch((e) => { $("meta").innerHTML = `<span class="error">데이터를 불러오지 못했습니다 (${esc(e.message)})</span>`; });

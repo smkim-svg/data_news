@@ -10,7 +10,7 @@
                   - path 를 비우면 그 제품 사이트 전체 지표
 
 환경 변수
-  LOOKBACK_DAYS   받아올 기간 (기본 400일: 최근 180일 + 비교용 이전 180일 + 여유)
+  LOOKBACK_DAYS   받아올 기간 (기본 570일: 최근 6개월 + 전년 같은 6개월까지)
   TIMEZONE        기본 Asia/Seoul
   GOOGLE_APPLICATION_CREDENTIALS  서비스 계정 JSON 경로
 
@@ -36,21 +36,24 @@ RELEASES_FILE = os.environ.get("RELEASES_FILE", os.path.join(ROOT, "releases.jso
 #   avg      : 일별 값의 평균 (일평균)
 #   weighted : 세션 수로 가중 평균 (비율 지표)
 #   ratio    : 분자 합 / 분모 합
+#   lowerIsBetter: 낮을수록 좋은 지표 (변화 색을 반대로)
 METRICS = {
     "activeUsers": {"label": "활성 사용자 (일평균)", "agg": "avg", "fmt": "int"},
     "screenPageViews": {"label": "페이지 조회수 (일평균)", "agg": "avg", "fmt": "int"},
     "sessions": {"label": "세션 (일평균)", "agg": "avg", "fmt": "int"},
     "engagementRate": {"label": "참여율", "agg": "weighted", "fmt": "pct"},
+    "bounceRate": {"label": "이탈률", "agg": "weighted", "fmt": "pct", "lowerIsBetter": True},
     "avgEngagementTime": {"label": "사용자당 참여 시간", "agg": "ratio", "num": "userEngagementDuration",
                           "den": "activeUsers", "fmt": "sec"},
     "keyEvents": {"label": "키 이벤트 (일평균)", "agg": "avg", "fmt": "int"},
     "sessionKeyEventRate": {"label": "세션 전환율", "agg": "weighted", "fmt": "pct"},
 }
 # GA4 에서 실제로 받아오는 지표 (최대 10개)
-RAW = ["screenPageViews", "activeUsers", "sessions", "engagementRate", "userEngagementDuration",
+RAW = ["screenPageViews", "activeUsers", "sessions", "engagementRate", "bounceRate", "userEngagementDuration",
        "keyEvents", "sessionKeyEventRate"]
+CHANNEL_DIM = "sessionDefaultChannelGroup"  # GA4 기본 채널 그룹 (Organic Search, Direct, Paid Search …)
 
-LOOKBACK = int(os.environ.get("LOOKBACK_DAYS", "400"))
+LOOKBACK = int(os.environ.get("LOOKBACK_DAYS", "570"))  # 6개월 전년 비교까지 (약 19개월)
 TZ = ZoneInfo(os.environ.get("TIMEZONE", "Asia/Seoul"))
 DATA_LAG_DAYS = 2  # 2일 전까지 (GA4 데이터가 확정되는 데 24~48시간 걸림)
 
@@ -126,48 +129,69 @@ def page_filter(paths: list[str], match: str):
     return exprs[0] if len(exprs) == 1 else FilterExpression(or_group=FilterExpressionList(expressions=exprs))
 
 
-def fetch_daily(property_id: str, start: dt.date, end: dt.date, paths: list[str], match: str) -> dict:
+def _report(property_id: str, start: dt.date, end: dt.date, paths: list[str], match: str, dims: list[str]):
     from google.analytics.data_v1beta import BetaAnalyticsDataClient
-    from google.analytics.data_v1beta.types import (DateRange, Dimension, Metric, OrderBy,
-                                                    RunReportRequest)
+    from google.analytics.data_v1beta.types import DateRange, Dimension, Metric, RunReportRequest
     req = RunReportRequest(
         property=f"properties/{property_id}",
         date_ranges=[DateRange(start_date=start.isoformat(), end_date=end.isoformat())],
-        dimensions=[Dimension(name="date")],
+        dimensions=[Dimension(name=d) for d in dims],
         metrics=[Metric(name=n) for n in RAW],
-        order_bys=[OrderBy(dimension=OrderBy.DimensionOrderBy(dimension_name="date"))],
-        limit=100000,
+        limit=250000,
     )
     flt = page_filter(paths, match)
     if flt is not None:
         req.dimension_filter = flt
-    resp = BetaAnalyticsDataClient().run_report(req)
-    daily = {}
-    for row in resp.rows:
+    for row in BetaAnalyticsDataClient().run_report(req).rows:
         d = row.dimension_values[0].value  # YYYYMMDD
-        daily[f"{d[:4]}-{d[4:6]}-{d[6:]}"] = {n: float(v.value or 0) for n, v in zip(RAW, row.metric_values)}
-    return daily
+        iso = f"{d[:4]}-{d[4:6]}-{d[6:]}"
+        yield iso, [x.value for x in row.dimension_values[1:]], {n: float(v.value or 0) for n, v in zip(RAW, row.metric_values)}
 
 
-def demo_daily(start: dt.date, end: dt.date, launch: dt.date, seed: int, new_page: bool) -> dict:
+def fetch_daily(property_id: str, start: dt.date, end: dt.date, paths: list[str], match: str) -> tuple[dict, dict]:
+    """(전체 일별, 채널별 일별) — {날짜: {지표: 값}}, {채널: {날짜: {지표: 값}}}"""
+    total = {iso: vals for iso, _, vals in _report(property_id, start, end, paths, match, ["date"])}
+    channels: dict[str, dict] = {}
+    for iso, (ch,), vals in _report(property_id, start, end, paths, match, ["date", CHANNEL_DIM]):
+        channels.setdefault(ch or "(not set)", {})[iso] = vals
+    return total, channels
+
+
+DEMO_CHANNELS = {"Organic Search": 0.44, "Direct": 0.24, "Paid Search": 0.13, "Referral": 0.08,
+                 "Organic Social": 0.05, "Email": 0.03, "Unassigned": 0.03}
+
+
+def demo_daily(start: dt.date, end: dt.date, launch: dt.date, seed: int, new_page: bool) -> tuple[dict, dict]:
     rnd = random.Random(seed)
     base = rnd.uniform(150, 900)
     lift = rnd.choice([1.12, 0.95, 1.25, 1.04])
-    daily, d = {}, start
+    total, channels, d = {}, {c: {} for c in DEMO_CHANNELS}, start
     while d <= end:
+        iso = d.isoformat()
         if new_page and d < launch:
-            daily[d.isoformat()] = {n: 0.0 for n in RAW}
+            total[iso] = {n: 0.0 for n in RAW}
         else:
-            k = (lift if d >= launch else 1.0) * (0.75 if d.weekday() >= 5 else 1.0) * rnd.uniform(0.9, 1.1)
-            users = base * k
-            sessions = users * 1.2
-            daily[d.isoformat()] = {
-                "screenPageViews": round(users * 1.6), "activeUsers": round(users), "sessions": round(sessions),
-                "engagementRate": min(0.95, 0.55 * k ** 0.3), "userEngagementDuration": users * 70 * k ** 0.5,
-                "keyEvents": round(sessions * 0.03 * k), "sessionKeyEventRate": min(1, 0.025 * k),
-            }
+            season = 1 + 0.12 * ((d.timetuple().tm_yday % 91) / 91 - 0.5)  # 계절 흔들림
+            k = (lift if d >= launch else 1.0) * season * (0.75 if d.weekday() >= 5 else 1.0) * rnd.uniform(0.9, 1.1)
+            day = {n: 0.0 for n in RAW}
+            for ch, share in DEMO_CHANNELS.items():
+                q = k * rnd.uniform(0.8, 1.2) * (1.1 if ch == "Paid Search" and d >= launch else 1.0)
+                users = base * share * q
+                sessions = users * 1.2
+                er = min(0.95, (0.65 if ch in ("Direct", "Email") else 0.5) * q ** 0.2)
+                v = {"screenPageViews": round(users * 1.6), "activeUsers": round(users), "sessions": round(sessions),
+                     "engagementRate": er, "bounceRate": 1 - er, "userEngagementDuration": users * 70 * q ** 0.5,
+                     "keyEvents": round(sessions * 0.03 * q), "sessionKeyEventRate": min(1, 0.025 * q)}
+                channels[ch][iso] = v
+                for n in ("screenPageViews", "activeUsers", "sessions", "userEngagementDuration", "keyEvents"):
+                    day[n] += v[n]
+                for n in ("engagementRate", "bounceRate", "sessionKeyEventRate"):
+                    day[n] += v[n] * v["sessions"]
+            for n in ("engagementRate", "bounceRate", "sessionKeyEventRate"):
+                day[n] = day[n] / day["sessions"] if day["sessions"] else 0
+            total[iso] = day
         d += dt.timedelta(days=1)
-    return daily
+    return total, channels
 
 
 # ---------------------------------------------------------------- 집계
@@ -181,22 +205,29 @@ def fill(daily: dict, start: dt.date, end: dt.date) -> dict:
 
 
 def build_page(product: dict, page: dict, last_full: dt.date, demo: bool) -> dict:
-    """페이지별 일별 원본 값만 내보내고, 기간별 집계는 화면에서 한다."""
+    """페이지별 일별 원본 값(전체 + 채널별)만 내보내고, 기간별 집계는 화면에서 한다."""
     launch = dt.date.fromisoformat(page["date"])
     start = min(launch - dt.timedelta(days=30), last_full - dt.timedelta(days=LOOKBACK))
     key = f"{page['date']}|{page['name']}|{'+'.join(page['paths'])}"
     base = {**page, "key": key}
     try:
-        raw = (demo_daily(start, last_full, launch, zlib.crc32(key.encode()), new_page="new" in page["note"])
-               if demo else fetch_daily(product["propertyId"], start, last_full, page["paths"], page["match"]))
+        total, channels = (demo_daily(start, last_full, launch, zlib.crc32(key.encode()), new_page="new" in page["note"])
+                           if demo else fetch_daily(product["propertyId"], start, last_full, page["paths"], page["match"]))
     except Exception as e:  # 권한 누락이 가장 흔한 원인
         msg = str(e).splitlines()[0][:300]
         print(f"[경고] {product['name']} / {page['name']}: {msg}", file=sys.stderr)
         return {**base, "error": f"GA4 조회 실패: {msg}"}
-    raw = fill(raw, start, last_full)
-    # [날짜, RAW 순서대로 값...] 형태로 압축
-    daily = [[d] + [round(v[n], 4) for n in RAW] for d, v in sorted(raw.items())]
-    return {**base, "daily": daily}
+    total = fill(total, start, last_full)
+    dates = sorted(total)
+    pack = lambda v: [round(v[n], 4) for n in RAW]
+    daily = [[d] + pack(total[d]) for d in dates]
+    # 채널별: 날짜 순서는 daily 와 같고, 그날 데이터가 없으면 0
+    by_ch = {}
+    for ch, days in channels.items():
+        rows = [pack(days[d]) if d in days else 0 for d in dates]
+        if any(rows):
+            by_ch[ch] = rows
+    return {**base, "daily": daily, "channels": by_ch}
 
 
 def main() -> None:
@@ -224,7 +255,7 @@ def main() -> None:
                              "pages": [build_page(p, x, last_full, demo) for x in mine]})
 
     payload = {
-        "version": 3,
+        "version": 4,
         "updatedAt": dt.datetime.now(TZ).isoformat(timespec="minutes"),
         "dataThrough": last_full.isoformat(),
         "raw": RAW,
