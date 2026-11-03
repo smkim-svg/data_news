@@ -1,5 +1,6 @@
 [
   { "date": "2026-09-21", "product": "airepoto", "name": "SDK 페이지", "path": "https://www.airepoto.com/ko/sdk/" },
   { "date": "2026-06-30", "product": "remotemeeting", "name": "메인", "path": "https://www.remotemeeting.com/ko/" },
-  { "date": "2026-06-30", "product": "remotemeeting", "name": "특장점", "path": "https://www.remotemeeting.com/ko/features/" }
+  { "date": "2026-06-30", "product": "remotemeeting", "name": "특장점", "path": "https://www.remotemeeting.com/ko/features/" },
+  { "date": "2026-06-04", "product": "remoteview", "name": "메인", "path": "https://content.rview.com/ko/" }
 ]
