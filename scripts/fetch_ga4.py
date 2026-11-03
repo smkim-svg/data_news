@@ -52,7 +52,7 @@ RAW = ["screenPageViews", "activeUsers", "sessions", "engagementRate", "userEnga
 
 LOOKBACK = int(os.environ.get("LOOKBACK_DAYS", "400"))
 TZ = ZoneInfo(os.environ.get("TIMEZONE", "Asia/Seoul"))
-DATA_LAG_DAYS = 1  # 어제까지 (오늘 데이터는 아직 집계 전)
+DATA_LAG_DAYS = 2  # 2일 전까지 (GA4 데이터가 확정되는 데 24~48시간 걸림)
 
 
 # ---------------------------------------------------------------- 설정 파일
