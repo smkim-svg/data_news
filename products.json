@@ -1,5 +1,6 @@
 [
   { "id": "remoteview", "name": "리모트뷰", "propertyId": "307717617" },
   { "id": "remotemeeting", "name": "리모트미팅", "propertyId": "543595202" },
-  { "id": "airepoto", "name": "AI레포토", "propertyId": "477959686" }
+  { "id": "airepoto", "name": "AI레포토", "propertyId": "477959686" },
+  { "id": "remotecall", "name": "리모트콜", "propertyId": "270301647" }
 ]

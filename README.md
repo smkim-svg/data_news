@@ -1,4 +1,24 @@
-# 배포 임팩트 대시보드 (GA4 × GitHub Releases)
+# 배포 임팩트 대시보드 (GA4 × 배포일)
+
+## 지금 구조 (화면에서 바로 추가)
+
+- **대시보드에서 페이지·주소·배포일을 추가/편집**하면 저장 즉시 GA4에서 불러와요. 배포(푸시)할 필요가 없어요.
+- 한 페이지에 **배포일을 여러 개** 넣을 수 있어요(개선할 때마다 추가). "배포 후~현재"에서 어느 배포 기준으로 볼지 고를 수 있어요.
+- 구성
+  - `api/config.js` — 제품·페이지·배포일 저장/수정 (Upstash Redis)
+  - `api/data.js` — GA4 Data API 조회 (같은 날·같은 설정이면 저장해 둔 결과 재사용, `↻ 다시 불러오기`로 강제 조회)
+  - `api/_lib/seed.js` — 저장소가 비어 있을 때 넣는 기본 제품·페이지 (제품 추가는 여기에)
+  - `middleware.js` — 회사 Google 계정 로그인 (API 도 보호)
+
+### Vercel 설정 (최초 1회)
+1. **Storage → Marketplace → Upstash (Redis)** 를 `data-news` 프로젝트에 연결 (무료). `KV_REST_API_URL`, `KV_REST_API_TOKEN` 이 자동으로 들어옵니다.
+2. **Settings → Environment Variables** 에 `GA4_SA_KEY` (서비스 계정 JSON 전체) 추가.
+3. 서비스 계정을 모든 제품 속성(리모트뷰·리모트미팅·AI레포토·리모트콜)에 **뷰어**로 추가.
+
+> 아래 내용(products.json / releases.json / GitHub Actions 로 data.json 생성)은 이전 방식이에요. 지금 화면은 data.json 을 쓰지 않습니다.
+
+---
+
 
 GitHub Releases의 배포일을 기준으로 GA4 주요 지표의 **배포 전 N일 vs 배포 후 N일** 변화를 매일 자동 집계해 Vercel에 올립니다. 회사 Google 계정(@rsupport.com)으로 로그인해야만 볼 수 있습니다.
 

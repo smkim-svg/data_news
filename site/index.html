@@ -135,6 +135,37 @@
   .chart-wrap { position: relative; height: 340px; }
   .note { color: var(--muted); font-size: 12px; margin-top: 12px; }
   .error { color: var(--down); }
+  .btn { font-size: 12px; border: 1px solid var(--line); background: var(--surface); border-radius: 8px; padding: 6px 10px; cursor: pointer; white-space: nowrap; }
+  .btn:hover { border-color: var(--muted); }
+  .btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  .btn-primary:hover { filter: brightness(1.05); border-color: var(--accent); }
+  .btn-danger { color: var(--down); }
+  .btn[disabled] { opacity: .6; cursor: progress; }
+  .head-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .head-actions a { margin-right: 4px; }
+  .side-head { align-items: center; }
+  .loading { color: var(--muted); font-size: 13px; padding: 24px 0; display: flex; align-items: center; gap: 10px; }
+  .spin { width: 14px; height: 14px; border: 2px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; display: inline-block; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .item .rc { font-size: 10px; color: var(--muted); background: var(--badge); border-radius: 4px; padding: 0 4px; margin-left: 4px; font-weight: 500; vertical-align: 1px; }
+  dialog#editor { border: 1px solid var(--line); border-radius: 14px; padding: 0; width: min(560px, calc(100vw - 32px)); background: var(--surface); color: var(--text); }
+  dialog#editor::backdrop { background: rgba(0,0,0,.35); }
+  #ed-form { padding: 22px; display: grid; gap: 14px; }
+  #ed-form h2 { margin: 0; font-size: 17px; }
+  #ed-form label { display: grid; gap: 6px; font-size: 13px; font-weight: 600; }
+  #ed-form label .sub, #ed-form legend .sub { font-weight: 400; }
+  #ed-form label.check { display: flex; align-items: center; gap: 8px; font-weight: 500; }
+  #ed-form input:not([type=checkbox]), #ed-form select, #ed-form textarea { font: inherit; font-size: 13px; font-weight: 400; color: var(--text); background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; width: 100%; }
+  #ed-form textarea { resize: vertical; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+  #ed-form fieldset { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px 12px; margin: 0; display: grid; gap: 8px; }
+  #ed-form legend { font-size: 13px; font-weight: 600; padding: 0 4px; }
+  .date-row { display: grid; grid-template-columns: 150px 1fr auto; gap: 6px; align-items: center; }
+  .date-row .rm { border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 16px; padding: 4px 6px; }
+  .date-row .rm:hover { color: var(--down); }
+  @media (max-width: 520px) { .date-row { grid-template-columns: 1fr auto; } .date-row input[type=text] { grid-column: 1 / -1; } }
+  .ed-actions { display: flex; gap: 8px; align-items: center; }
+  .ed-actions .spacer { flex: 1; }
+  .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: var(--text); color: var(--surface); padding: 10px 16px; border-radius: 10px; font-size: 13px; z-index: 50; box-shadow: 0 6px 24px rgba(0,0,0,.2); }
   .ch-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 4px 12px; margin: 24px 0 8px; padding-top: 16px; border-top: 1px solid var(--line); }
   .ch-head h3 { font-size: 14px; margin: 0; }
   .table-scroll { overflow: hidden; }  /* 표는 화면 폭에 맞춰 줄이고(긴 이름은 …), 가로 스크롤은 만들지 않음 */
@@ -173,7 +204,7 @@
 
 <div class="layout">
   <aside class="side" aria-label="배포 페이지 목록">
-    <div class="side-head"><h2>배포 페이지</h2><span class="sub" id="list-count"></span></div>
+    <div class="side-head"><div><h2>배포 페이지</h2><span class="sub" id="list-count"></span></div><button class="btn btn-primary" id="add-page">+ 페이지 추가</button></div>
     <ul class="list" id="list"></ul>
   </aside>
 
@@ -185,7 +216,11 @@
           <h2 id="rel-title"></h2>
           <div class="sub" id="rel-sub"></div>
         </div>
-        <a id="rel-link" target="_blank" rel="noopener" hidden>페이지 열기 ↗</a>
+        <div class="head-actions">
+          <a id="rel-link" target="_blank" rel="noopener" hidden>페이지 열기 ↗</a>
+          <button class="btn" id="reload-page" title="GA4에서 다시 불러오기">↻ 다시 불러오기</button>
+          <button class="btn" id="edit-page">편집 · 배포일 추가</button>
+        </div>
       </div>
 
       <div class="period" role="group" aria-label="조회 기간">
@@ -207,6 +242,7 @@
       </div>
 
       <div id="kpi-error" class="error" hidden></div>
+      <div id="kpi-loading" class="loading" hidden><span class="spin"></span>GA4에서 데이터를 불러오는 중이에요…</div>
       <div class="kpis" id="kpis"></div>
       <div class="note"><span id="kpi-note"></span> <button class="linkbtn" id="fold-all"></button></div>
     </section>
@@ -237,6 +273,30 @@
     </section>
   </main>
 </div>
+
+<dialog id="editor" aria-labelledby="ed-title">
+  <form id="ed-form" method="dialog" novalidate>
+    <h2 id="ed-title">페이지 추가</h2>
+    <label>제품<select id="ed-product" required></select></label>
+    <label>페이지 이름<input id="ed-name" maxlength="80" placeholder="예: 요금제 페이지" required></label>
+    <label>페이지 주소 <span class="sub">한 줄에 하나씩. 언어별 주소가 여러 개면 모두 적으면 합쳐서 봐요</span>
+      <textarea id="ed-urls" rows="3" placeholder="https://www.remotemeeting.com/ko/pricing/"></textarea></label>
+    <label class="check"><input type="checkbox" id="ed-prefix"> 하위 경로까지 포함 <span class="sub">(예: /ko/blog/ 아래 모든 글)</span></label>
+    <fieldset>
+      <legend>배포일 <span class="sub">개선할 때마다 추가하세요</span></legend>
+      <div id="ed-dates"></div>
+      <button type="button" class="linkbtn" id="ed-add-date">+ 배포일 추가</button>
+    </fieldset>
+    <label>메모 <span class="sub">(선택)</span><input id="ed-note" maxlength="200" placeholder="예: 히어로 문구·CTA 변경"></label>
+    <div class="ed-error error" id="ed-error" hidden></div>
+    <div class="ed-actions">
+      <button type="button" class="btn btn-danger" id="ed-delete" hidden>삭제</button>
+      <span class="spacer"></span>
+      <button type="button" class="btn" id="ed-cancel">취소</button>
+      <button type="submit" class="btn btn-primary" id="ed-save">저장하고 불러오기</button>
+    </div>
+  </form>
+</dialog>
 
 <script>
 const $ = (id) => document.getElementById(id);
@@ -285,6 +345,7 @@ function deltaHtml(c, key) {
 
 // ---------- 데이터 접근
 let DATA, IDX, P, SEL, chart;
+const pending = new Map();   // 불러오는 중인 페이지 id → Promise
 let PERIOD = { unit: "w1", start: null };   // unit+start 또는 { unit: null, from, to } (직접 선택)
 let MODE = "prev";                          // prev: 이전 기간 대비, yoy: 전년 같은 기간 대비
 let ON = null;                              // 차트에 켜 둔 채널 (null = 모든 채널). "전체" 버튼은 모두 켜기/끄기
@@ -377,6 +438,8 @@ function blocks(unit) {
   }
   return out.map((b) => ({ ...b, partial: b.end < b.fullEnd, days: diffDays(b.start, b.end) + 1 }));
 }
+/** 배포 후~현재: 고른 배포일 (기본은 가장 최근 배포) */
+const sinceStart = () => (SEL.dates.includes(PERIOD.start) ? PERIOD.start : SEL.date);
 function currentBlock() {
   if (!PERIOD.unit || PERIOD.unit === "since") return null;
   const list = blocks(PERIOD.unit), picked = list.find((b) => b.start === PERIOD.start);
@@ -389,7 +452,7 @@ function range() {
   const last = DATA.dataThrough;
   let from, to, label, partial = false, fullEnd;
   if (PERIOD.unit === "since") {
-    from = maxIso(minIso(SEL.date, last), DATA.dataFrom); to = last; label = "배포 후 ~ 현재";
+    from = maxIso(minIso(sinceStart(), last), DATA.dataFrom); to = last; label = `${shortDate(sinceStart())} 배포 후 ~ 현재`;
   } else if (PERIOD.unit) {
     const b = currentBlock(); ({ start: from, end: to, name: label, partial, fullEnd } = b);
     if (partial) label += ` (진행 중 ${b.days}일)`;
@@ -438,7 +501,7 @@ function readHash() {
 function writeHash() {
   const h = new URLSearchParams({ product: P.id });
   if (SEL) h.set("page", SEL.key);
-  if (PERIOD.unit) { h.set("unit", PERIOD.unit); const b = currentBlock(); if (b) h.set("start", b.start); }
+  if (PERIOD.unit) { h.set("unit", PERIOD.unit); const b = currentBlock(); if (b) h.set("start", b.start); else if (PERIOD.unit === "since" && SEL) h.set("start", sinceStart()); }
   else { h.set("from", PERIOD.from); h.set("to", PERIOD.to); }
   if (MODE === "yoy") h.set("cmp", "yoy");
   if (METRIC !== PRIMARY) h.set("metric", METRIC);
@@ -455,14 +518,65 @@ function selectProduct(id, pageKey) {
   P = DATA.products.find((p) => p.id === id) || DATA.products[0];
   SEL = P.pages.find((r) => r.key === pageKey) || P.pages[0] || null;
   ON = null; renderTabs(); renderAll();
+  loadProduct(P);
 }
+
+// ---------- 서버에서 설정·데이터 불러오기
+async function api(path, body) {
+  const r = await fetch(path, body ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : { cache: "no-store" });
+  const j = await r.json().catch(() => ({ error: `서버 응답 오류 (${r.status})` }));
+  if (!r.ok || (j.error && !j.daily)) throw new Error(j.error || r.status);
+  return j;
+}
+/** /api/config 응답을 화면용 구조로 (이미 받은 데이터는 유지) */
+function applyConfig(cfg) {
+  const old = new Map((DATA?.products || []).flatMap((p) => p.pages).map((pg) => [pg.key, pg]));
+  DATA = { ...cfg, products: cfg.products.map((p) => ({ ...p, pages: [] })) };
+  IDX = Object.fromEntries(cfg.raw.map((k, i) => [k, i + 1]));
+  for (const pg of cfg.pages) {
+    const prod = DATA.products.find((p) => p.id === pg.product);
+    if (!prod) continue;
+    const dates = pg.releases.map((r) => r.date).sort();
+    const prev = old.get(pg.id);
+    const same = prev && JSON.stringify([prev.paths, prev.match, prev.releases[0]?.date]) === JSON.stringify([pg.paths, pg.match, pg.releases[0]?.date]);
+    prod.pages.push({ ...pg, key: pg.id, date: dates.at(-1), dates,
+      ...(same ? { daily: prev.daily, channels: prev.channels, channelGroup: prev.channelGroup, error: prev.error } : {}) });
+  }
+  DATA.products.forEach((p) => p.pages.sort((a, b) => b.date.localeCompare(a.date) || a.name.localeCompare(b.name)));
+  groupCache.clear(); seriesCache.clear();
+  $("demo").hidden = !cfg.demo;
+  $("meta").textContent = `${longDate(cfg.dataThrough)}까지 데이터` + (cfg.storage === "memory" ? " · ⚠ 저장소 미연결(추가한 페이지가 유지되지 않아요)" : "");
+}
+function loadPage(pg, refresh) {
+  if (!refresh && (pg.daily || pg.error)) return Promise.resolve();
+  if (pending.has(pg.key)) return pending.get(pg.key);
+  pg.loading = true;
+  const job = api(`/api/data?id=${encodeURIComponent(pg.key)}${refresh ? "&refresh=1" : ""}`)
+    .then((d) => {
+      if (d.error) { pg.error = d.error; pg.daily = null; return; }
+      Object.assign(pg, { daily: d.daily, channels: d.channels, channelGroup: d.channelGroup, error: null });
+      if (d.dataFrom < DATA.dataFrom) DATA.dataFrom = d.dataFrom;
+    })
+    .catch((e) => { pg.error = e.message; })
+    .finally(() => { pg.loading = false; pending.delete(pg.key); });
+  pending.set(pg.key, job);
+  return job;
+}
+async function loadProduct(prod, refreshKey) {
+  const jobs = prod.pages.map((pg) => loadPage(pg, pg.key === refreshKey));
+  if (!jobs.length) return;
+  // 하나 끝날 때마다 화면 갱신 (선택한 페이지가 먼저 보이도록)
+  jobs.forEach((j) => j.then(() => { if (P === prod) { groupCache.delete(prod.id); renderList(); if (SEL && !SEL.loading) renderDetail(); } }));
+  await Promise.all(jobs);
+}
+const ready = (pg) => pg && pg.daily && !pg.loading;
 function renderAll() { renderList(); renderDetail(); writeHash(); }
 
-// ---------- 왼쪽: 배포일별 페이지 목록
+// ---------- 왼쪽: 배포일별 페이지 목록 (가장 최근 배포일 기준으로 묶음)
 function renderList() {
   $("list-count").textContent = `활성 사용자 · ${MODE === "yoy" ? "전년 대비" : "이전 대비"}`;
   if (!P.pages.length) {
-    $("list").innerHTML = `<li class="empty">아직 등록된 배포 페이지가 없어요.<br><br><code>releases.json</code>에 <code>"product": "${esc(P.id)}"</code>로 페이지를 추가하면 여기에 나타납니다.</li>`;
+    $("list").innerHTML = `<li class="empty">아직 등록된 페이지가 없어요.<br><br>위의 <b>+ 페이지 추가</b>로 ${esc(P.name)} 페이지와 배포일을 넣으면 바로 GA4에서 불러와요.</li>`;
     return;
   }
   const groups = [];
@@ -470,15 +584,18 @@ function renderList() {
   const keepSel = SEL;
   $("list").innerHTML = groups.map((g) => `
     <li class="group"><div class="gh">${longDate(g.date)} 배포</div><ul>${g.items.map((r) => {
-      let m = '<span class="delta down">오류</span>';
-      if (!r.error) { SEL = r; const c = compare(r.daily, PRIMARY); m = `${deltaHtml(c, PRIMARY)}<small>${fmt(c.cur, "int")}명/일</small>`; }
+      let m;
+      if (r.loading || (!r.daily && !r.error)) m = '<span class="spin"></span>';
+      else if (r.error) m = '<span class="delta down">오류</span>';
+      else { SEL = r; const c = compare(r.daily, PRIMARY); m = `${deltaHtml(c, PRIMARY)}<small>${fmt(c.cur, "int")}명/일</small>`; }
       return `<li><button class="item" data-key="${esc(r.key)}" aria-current="${keepSel && r.key === keepSel.key}">
-        <span class="t" title="${esc(r.name)}">${esc(r.name)}</span>
+        <span class="t" title="${esc(r.name)}">${esc(r.name)}${r.dates.length > 1 ? `<span class="rc">배포 ${r.dates.length}회</span>` : ""}</span>
         <span class="d" title="${esc(pathText(r))}">${esc(pathText(r))}</span>
         <span class="m">${m}</span></button></li>`; }).join("")}</ul></li>`).join("");
   SEL = keepSel;
   $("list").querySelectorAll(".item").forEach((b) => b.onclick = () => {
     SEL = P.pages.find((r) => r.key === b.dataset.key);
+    if (PERIOD.unit === "since") PERIOD.start = null;
     $("list").querySelectorAll(".item").forEach((x) => x.setAttribute("aria-current", String(x === b)));
     renderDetail(); writeHash();
   });
@@ -489,7 +606,12 @@ function syncPeriodControls(R) {
   document.querySelectorAll("#units button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.unit === PERIOD.unit)));
   document.querySelectorAll("#modes button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.mode === MODE)));
   const sel = $("block"), showBlocks = PERIOD.unit && PERIOD.unit !== "since";
-  sel.hidden = !showBlocks;
+  sel.hidden = !PERIOD.unit;
+  if (PERIOD.unit === "since") {
+    const cur = sinceStart();
+    sel.innerHTML = [...SEL.dates].reverse().map((d, i) =>
+      `<option value="${d}"${d === cur ? " selected" : ""}>${ymd(d)} 배포 후 ~ 현재${i === 0 ? " (최근 배포)" : ""}</option>`).join("");
+  }
   if (showBlocks) {
     const cur = currentBlock();
     sel.innerHTML = blocks(PERIOD.unit).map((b) =>
@@ -505,17 +627,23 @@ function renderDetail() {
   if (!SEL) return;
   const r = SEL, R = range();
   const since = diffDays(r.date, DATA.dataThrough);
-  $("rel-date").textContent = `${longDate(r.date)} 배포` + (since >= 0 ? ` · 배포 후 ${since + 1}일째` : "");
+  $("rel-date").textContent = (r.dates.length > 1 ? `배포 ${r.dates.length}회 · ${r.dates.map(ymd).join(", ")}` : `${longDate(r.date)} 배포`)
+    + (since >= 0 ? ` · 최근 배포 후 ${since + 1}일째` : "");
   $("rel-title").textContent = r.name;
-  $("rel-sub").innerHTML = `${esc(P.name)} · <code class="path">${esc(pathText(r))}</code>`;
-  $("rel-link").hidden = !r.url; if (r.url) $("rel-link").href = r.url;
+  $("rel-sub").innerHTML = `${esc(P.name)} · <code class="path">${esc(pathText(r))}</code>` + (r.note ? ` · ${esc(r.note)}` : "");
+  const link = (r.urls || []).find((u) => /^https?:\/\//.test(u));
+  $("rel-link").hidden = !link; if (link) $("rel-link").href = link;
   syncPeriodControls(R);
 
-  $("chart-card").hidden = !!r.error;
+  const loading = !r.error && !ready(r);
+  $("kpi-loading").hidden = !loading;
+  $("chart-card").hidden = !!r.error || loading;
   $("kpi-error").hidden = !r.error;
+  $("reload-page").disabled = !!r.loading;
+  if (loading) { $("kpis").innerHTML = ""; $("kpi-note").textContent = ""; $("fold-all").hidden = true; return; }
   if (r.error) {
     $("kpis").innerHTML = ""; $("kpi-note").textContent = "";
-    $("kpi-error").innerHTML = `${esc(r.error)}<br><span class="sub">서비스 계정이 이 제품의 GA4 속성에 <b>뷰어</b>로 추가됐는지 확인해 주세요.</span>`;
+    $("kpi-error").innerHTML = `${esc(r.error)}<br><span class="sub">권한 문제라면 서비스 계정을 이 제품의 GA4 속성에 <b>뷰어</b>로 추가한 뒤 <b>↻ 다시 불러오기</b>를 눌러 주세요.</span>`;
     return;
   }
   const groups = channelGroups(P);
@@ -551,7 +679,9 @@ function syncFoldAll() {
 function setMetric(k, scroll) {
   METRIC = k; $("metric").value = k;
   $("kpis").querySelectorAll(".tile").forEach((t) => t.setAttribute("aria-pressed", String(t.dataset.metric === k)));
-  const R = range(); renderChannels(R); drawChart(R); writeHash();
+  writeHash();
+  if (!ready(SEL)) return;
+  const R = range(); renderChannels(R); drawChart(R);
   if (scroll) $("chart-card").scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
@@ -564,7 +694,7 @@ function toggleSeries(key) {
   const cur = onSet();
   if (key === "__all") ON = allOn() ? new Set() : new Set(channelKeys());
   else { cur.has(key) ? cur.delete(key) : cur.add(key); ON = cur; }
-  const R = range(); renderChannels(R); drawChart(R);
+  if (ready(SEL)) { const R = range(); renderChannels(R); drawChart(R); }
 }
 function renderChannels(R) {
   const m = DATA.metrics[METRIC], groups = channelGroups(P);
@@ -621,11 +751,12 @@ function drawChart(R) {
   $("lg-cmp").parentElement.hidden = !single;
   document.querySelector(".sw-cur").style.background = shown.length ? css(shown[0].color) : css("--muted");
 
-  const releaseDates = [...new Set(P.pages.map((p) => p.date))];
-  const marks = releaseDates.map((d) => ({ d, i: labels.indexOf(d), mine: d === SEL.date })).filter((m) => m.i >= 0);
-  const out = $("rel-out");
-  out.hidden = labels.includes(SEL.date);
-  out.textContent = SEL.date < R.from ? `· 이 페이지 배포일(${shortDate(SEL.date)})은 선택 기간 이전이에요` : `· 이 페이지 배포일(${shortDate(SEL.date)})은 선택 기간 이후예요`;
+  const others = [...new Set(P.pages.filter((p) => p !== SEL).flatMap((p) => p.dates))].filter((d) => !SEL.dates.includes(d));
+  const marks = [...SEL.dates.map((d) => ({ d, mine: true })), ...others.map((d) => ({ d, mine: false }))]
+    .map((m) => ({ ...m, i: labels.indexOf(m.d) })).filter((m) => m.i >= 0);
+  const out = $("rel-out"), inRange = SEL.dates.filter((d) => labels.includes(d));
+  out.hidden = inRange.length > 0;
+  out.textContent = `· 이 페이지 배포일(${SEL.dates.map(shortDate).join(", ")})은 선택 기간 밖이에요`;
 
   const plugin = {
     id: "releaseMarks",
@@ -672,7 +803,7 @@ function drawChart(R) {
               ? ` 비교 ${prevDates[c.dataIndex].slice(2).replaceAll("-", ".")} (${dow(prevDates[c.dataIndex])}): ${fmt(c.parsed.y, meta.fmt)}`
               : ` ${single ? "" : c.dataset.label + ": "}${fmt(c.parsed.y, meta.fmt)}`,
             footer: (items) => {
-              const d = labels[items[0].dataIndex], names = P.pages.filter((p) => p.date === d).map((p) => p.name);
+              const d = labels[items[0].dataIndex], names = P.pages.filter((p) => p.dates.includes(d)).map((p) => p.name);
               return names.length ? [`● 배포: ${names.join(", ")}`] : [];
             },
           },
@@ -705,17 +836,85 @@ fetch("/auth/me", { cache: "no-store" })
   .then((u) => { if (u) $("user").innerHTML = `${esc(u.email)} · <a href="/auth/logout" style="color:inherit">로그아웃</a>`; })
   .catch(() => {});
 
-fetch("data.json", { cache: "no-store" })
-  .then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); })
-  .then((data) => {
-    if (data.version !== 5) throw new Error("데이터 형식이 이전 버전입니다. 워크플로를 다시 실행해 주세요.");
-    DATA = data;
-    IDX = Object.fromEntries(data.raw.map((k, i) => [k, i + 1]));
-    DATA.dataFrom = data.products.flatMap((p) => p.pages).filter((p) => p.daily).map((p) => p.daily[0][0]).sort().at(-1) || data.dataThrough;
-    $("demo").hidden = !data.demo;
-    $("meta").textContent = `${longDate(data.dataThrough)}까지 데이터 · 갱신 ${data.updatedAt.replace("T", " ").slice(0, 16)}`;
+// ---------- 페이지 추가·편집
+let EDIT = null;   // 편집 중인 페이지 (null = 새로 추가)
+function dateRow(date = "", note = "") {
+  const row = document.createElement("div");
+  row.className = "date-row";
+  row.innerHTML = `<input type="date" max="${todayISO()}" value="${esc(date)}" aria-label="배포일"><input type="text" maxlength="100" placeholder="무엇을 바꿨나요? (선택)" value="${esc(note)}" aria-label="배포 메모"><button type="button" class="rm" title="이 배포일 빼기" aria-label="배포일 삭제">×</button>`;
+  row.querySelector(".rm").onclick = () => { if ($("ed-dates").children.length > 1) row.remove(); else row.querySelector("input").value = ""; };
+  $("ed-dates").append(row);
+  return row;
+}
+const todayISO = () => new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10);
+function openEditor(page) {
+  EDIT = page || null;
+  $("ed-title").textContent = page ? "페이지 편집 · 배포일 추가" : "페이지 추가";
+  $("ed-product").innerHTML = DATA.products.map((p) => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join("");
+  $("ed-product").value = page ? page.product : P.id;
+  $("ed-name").value = page ? page.name : "";
+  $("ed-urls").value = page ? (page.urls || []).join("\n") : "";
+  $("ed-prefix").checked = page ? page.match === "prefix" : false;
+  $("ed-note").value = page?.note || "";
+  $("ed-dates").innerHTML = "";
+  (page ? page.releases : [{ date: "" }]).forEach((r) => dateRow(r.date, r.note));
+  if (page) dateRow("").querySelector("input").focus();   // 편집할 땐 새 배포일 칸을 하나 열어 둠
+  $("ed-error").hidden = true;
+  $("ed-delete").hidden = !page; $("ed-delete").dataset.armed = ""; $("ed-delete").textContent = "삭제";
+  $("ed-save").disabled = false; $("ed-save").textContent = "저장하고 불러오기";
+  $("editor").showModal();
+  if (!page) $("ed-name").focus();
+}
+function editorValue() {
+  return {
+    product: $("ed-product").value, name: $("ed-name").value.trim(),
+    urls: $("ed-urls").value.split(/\n/).map((s) => s.trim()).filter(Boolean),
+    match: $("ed-prefix").checked ? "prefix" : "exact", note: $("ed-note").value.trim(),
+    releases: [...$("ed-dates").querySelectorAll(".date-row")].map((r) => ({ date: r.querySelector("input[type=date]").value, note: r.querySelector("input[type=text]").value.trim() })).filter((r) => r.date),
+  };
+}
+function toast(msg) {
+  const t = document.createElement("div"); t.className = "toast"; t.textContent = msg; document.body.append(t);
+  setTimeout(() => t.remove(), 3500);
+}
+async function saveEditor(e) {
+  e.preventDefault();
+  const page = editorValue();
+  const showErr = (m) => { $("ed-error").textContent = m; $("ed-error").hidden = false; };
+  if (!page.name) return showErr("페이지 이름을 입력해 주세요.");
+  if (!page.urls.length) return showErr("페이지 주소를 하나 이상 입력해 주세요.");
+  if (!page.releases.length) return showErr("배포일을 하나 이상 입력해 주세요.");
+  $("ed-save").disabled = true; $("ed-save").textContent = "저장 중…";
+  try {
+    const cfg = await api("/api/config", EDIT ? { action: "updatePage", id: EDIT.key, page } : { action: "addPage", page });
+    applyConfig(cfg);
+    $("editor").close();
+    toast(EDIT ? "저장했어요. GA4에서 다시 불러오는 중…" : "추가했어요. GA4에서 불러오는 중…");
+    selectProduct(page.product, cfg.savedId);
+  } catch (err) {
+    showErr(err.message); $("ed-save").disabled = false; $("ed-save").textContent = "저장하고 불러오기";
+  }
+}
+async function deletePage() {
+  const b = $("ed-delete");
+  if (!b.dataset.armed) { b.dataset.armed = "1"; b.textContent = "정말 삭제할까요? 한 번 더 누르기"; return; }
+  b.disabled = true;
+  try {
+    const cfg = await api("/api/config", { action: "deletePage", id: EDIT.key });
+    const prod = EDIT.product;
+    applyConfig(cfg); $("editor").close(); toast("삭제했어요.");
+    selectProduct(prod);
+  } catch (err) { $("ed-error").textContent = err.message; $("ed-error").hidden = false; }
+  b.disabled = false;
+}
+
+// ---------- 시작
+api("/api/config")
+  .then((cfg) => {
+    if (cfg.version !== 6) throw new Error("화면과 서버 버전이 맞지 않아요. 새로고침해 주세요.");
+    applyConfig(cfg);
     const sel = $("metric");
-    sel.innerHTML = Object.entries(data.metrics).map(([k, m]) => `<option value="${k}">${esc(m.label)}</option>`).join("");
+    sel.innerHTML = Object.entries(DATA.metrics).map(([k, m]) => `<option value="${k}">${esc(m.label)}</option>`).join("");
     sel.onchange = () => setMetric(sel.value);
     document.querySelectorAll("#units button").forEach((b) => b.onclick = () => setUnit(b.dataset.unit));
     document.querySelectorAll("#modes button").forEach((b) => b.onclick = () => setMode(b.dataset.mode));
@@ -728,11 +927,18 @@ fetch("data.json", { cache: "no-store" })
     };
     $("from").addEventListener("change", setCustom);
     $("to").addEventListener("change", setCustom);
+    $("add-page").onclick = () => openEditor(null);
+    $("edit-page").onclick = () => SEL && openEditor(SEL);
+    $("reload-page").onclick = () => { if (!SEL) return; SEL.daily = null; SEL.error = null; renderAll(); loadProduct(P, SEL.key); };
+    $("ed-add-date").onclick = () => dateRow("").querySelector("input").focus();
+    $("ed-cancel").onclick = () => $("editor").close();
+    $("ed-form").onsubmit = saveEditor;
+    $("ed-delete").onclick = deletePage;
     const h = readHash();
     sel.value = METRIC;
-    selectProduct(h.product || data.products[0].id, h.page);
+    selectProduct(h.product || DATA.products[0].id, h.page);
   })
-  .catch((e) => { $("meta").innerHTML = `<span class="error">데이터를 불러오지 못했습니다 (${esc(e.message)})</span>`; });
+  .catch((e) => { $("meta").innerHTML = `<span class="error">설정을 불러오지 못했습니다 (${esc(e.message)})</span>`; });
 </script>
 </body>
 </html>

@@ -159,6 +159,10 @@ export default async function middleware(req) {
   }
   if (session) return; // 통과 → 정적 파일 제공
 
-  if (url.pathname.endsWith(".json")) return new Response("Unauthorized", { status: 401 });
+  if (url.pathname.startsWith("/api/") || url.pathname.endsWith(".json")) {
+    return new Response(JSON.stringify({ error: "로그인이 필요합니다. 페이지를 새로고침해 주세요." }), {
+      status: 401, headers: { "Content-Type": "application/json; charset=utf-8" },
+    });
+  }
   return redirect(`/auth/login?next=${encodeURIComponent(url.pathname + url.search)}`);
 }
