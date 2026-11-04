@@ -40,7 +40,10 @@
   .tab .count { font-weight: 500; color: var(--muted); margin-left: 4px; font-size: 12px; }
 
   .layout { max-width: 1320px; margin: 0 auto; padding: 20px 16px 64px; display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 20px; align-items: start; }
-  @media (max-width: 860px) { .layout { grid-template-columns: 1fr; } }
+  @media (max-width: 860px) { .layout { grid-template-columns: minmax(0, 1fr); } }
+  .side, main { min-width: 0; }
+  .seg { flex-wrap: wrap; }
+  @media (max-width: 640px) { #block { min-width: 0; width: 100%; } .dates { width: 100%; } .dates input[type="date"] { min-width: 0; flex: 1; } }
   .card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 20px; margin-bottom: 20px; }
   .card h2 { font-size: 15px; margin: 0; }
 
@@ -134,9 +137,14 @@
   .error { color: var(--down); }
   .ch-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 4px 12px; margin: 24px 0 8px; padding-top: 16px; border-top: 1px solid var(--line); }
   .ch-head h3 { font-size: 14px; margin: 0; }
-  .table-scroll { overflow-x: auto; }
-  table.ch { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
-  .ch th { color: var(--muted); font-weight: 500; font-size: 12px; text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  .table-scroll { overflow: hidden; }  /* 표는 화면 폭에 맞춰 줄이고(긴 이름은 …), 가로 스크롤은 만들지 않음 */
+  table.ch { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+  .ch col.c-name { width: auto; } .ch col.c-num { width: 13%; } .ch col.c-delta { width: 12%; } .ch col.c-share { width: 22%; }
+  .ch td.name { overflow: hidden; text-overflow: ellipsis; }
+  .ch td.name .dot { margin-right: 8px; }
+  .ch .info { color: var(--muted); font-size: 11px; cursor: help; }
+  @media (max-width: 640px) { .ch .bar { display: none; } .ch col.c-share { width: 16%; } .ch col.c-num { width: 17%; } .ch th, .ch td { padding: 8px 4px; } table.ch { font-size: 12px; } .ch .delta { padding: 1px 4px; font-size: 11px; } .ch col.c-delta { width: 19%; } }
+  .ch th { color: var(--muted); font-weight: 500; font-size: 12px; text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .ch td { padding: 9px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
   .ch td .sub { font-size: 11px; margin-left: 4px; }
   .ch .num { text-align: right; }
@@ -144,7 +152,7 @@
   .ch tbody tr { cursor: pointer; }
   .ch tbody tr:hover { background: var(--surface-2); }
   .ch tbody tr[aria-selected="true"] { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
-  .bar { display: inline-block; width: 60px; height: 6px; background: var(--badge); border-radius: 3px; margin-right: 8px; vertical-align: 1px; overflow: hidden; }
+  .bar { display: inline-block; width: 48px; height: 6px; background: var(--badge); border-radius: 3px; margin-right: 8px; vertical-align: 1px; overflow: hidden; }
   .bar i { display: block; height: 100%; background: var(--accent); border-radius: 3px; }
   #chart-sub a { color: var(--accent); }
 </style>
@@ -279,7 +287,7 @@ function deltaHtml(c, key) {
 let DATA, IDX, P, SEL, chart;
 let PERIOD = { unit: "w1", start: null };   // unit+start 또는 { unit: null, from, to } (직접 선택)
 let MODE = "prev";                          // prev: 이전 기간 대비, yoy: 전년 같은 기간 대비
-let ON = new Set(["__all"]);                // 차트에 켜 둔 계열 (__all = 전체, 채널 이름, __other = 그 외)
+let ON = null;                              // 차트에 켜 둔 채널 (null = 모든 채널). "전체" 버튼은 모두 켜기/끄기
 const OPEN = new Set();                     // 채널별을 펼친 카드
 let METRIC = PRIMARY;
 const ZERO = () => new Array(DATA.raw.length).fill(0);
@@ -446,7 +454,7 @@ function renderTabs() {
 function selectProduct(id, pageKey) {
   P = DATA.products.find((p) => p.id === id) || DATA.products[0];
   SEL = P.pages.find((r) => r.key === pageKey) || P.pages[0] || null;
-  ON = new Set(["__all"]); renderTabs(); renderAll();
+  ON = null; renderTabs(); renderAll();
 }
 function renderAll() { renderList(); renderDetail(); writeHash(); }
 
@@ -548,8 +556,14 @@ function setMetric(k, scroll) {
 }
 
 // ---------- 채널별 상세 (표 + 차트 토글 버튼)
+const channelKeys = () => channelGroups(P).map((g) => g.key);
+const onSet = () => ON || new Set(channelKeys());
+const allOn = () => channelKeys().every((k) => onSet().has(k));
+const isOn = (key) => (key === "__all" ? allOn() : onSet().has(key));
 function toggleSeries(key) {
-  if (ON.has(key)) { if (ON.size > 1) ON.delete(key); } else ON.add(key);
+  const cur = onSet();
+  if (key === "__all") ON = allOn() ? new Set() : new Set(channelKeys());
+  else { cur.has(key) ? cur.delete(key) : cur.add(key); ON = cur; }
   const R = range(); renderChannels(R); drawChart(R);
 }
 function renderChannels(R) {
@@ -558,16 +572,17 @@ function renderChannels(R) {
   const totalSess = sess(SEL.daily) || 1;
   const all = [ALL, ...groups];
   // 토글 버튼
-  $("chips").innerHTML = all.map((g) => `<button class="chip" data-key="${esc(g.key)}" aria-pressed="${ON.has(g.key)}"><i class="dot" style="background:var(${g.color})"></i>${esc(g.name)}</button>`).join("");
+  $("chips").innerHTML = all.map((g) => `<button class="chip" data-key="${esc(g.key)}" aria-pressed="${isOn(g.key)}"${g.key === "__all" ? ' title="모든 채널 켜기/끄기"' : ""}>${g.key === "__all" ? "" : `<i class="dot" style="background:var(${g.color})"></i>`}${esc(g.name)}</button>`).join("");
   $("chips").querySelectorAll(".chip").forEach((b) => b.onclick = () => toggleSeries(b.dataset.key));
   // 표
   $("ch-title").textContent = `채널별 · ${m.label}`;
   $("ch-group").textContent = SEL.channelGroup ? `기준: ${SEL.channelGroup}` : "";
-  $("ch-table").innerHTML = `<thead><tr><th>채널</th><th class="num">선택 기간</th><th class="num">${esc(R.cmpName)}</th><th class="num">변화</th><th class="num">세션 비중</th></tr></thead>
+  $("ch-table").innerHTML = `<colgroup><col class="c-name"><col class="c-num"><col class="c-num"><col class="c-delta"><col class="c-share"></colgroup><thead><tr><th>채널</th><th class="num">선택 기간</th><th class="num" title="${esc(R.cmpName)}">${R.cmpName.includes("전년") ? "전년" : "비교 기간"}</th><th class="num">변화</th><th class="num">세션 비중</th></tr></thead>
     <tbody>${all.map((g) => {
       const rows = seriesRows(SEL, g.key), c = compare(rows, METRIC, R), s = sess(rows);
-      return `<tr data-key="${esc(g.key)}" aria-selected="${ON.has(g.key)}" tabindex="0">
-        <td><i class="dot" style="background:var(${g.color});margin-right:8px"></i>${g.key === "__all" ? "<b>전체</b>" : esc(g.name)}${g.members ? `<span class="sub" title="${esc(g.members.join(", "))}"> (${esc(g.members.join(", "))})</span>` : ""}</td>
+      const tip = g.members ? ` title="${esc(g.members.join(", "))}"` : ` title="${esc(g.name)}"`;
+      return `<tr data-key="${esc(g.key)}" aria-selected="${isOn(g.key)}" tabindex="0">
+        <td class="name"${tip}>${g.key === "__all" ? "<b>전체</b>" : `<i class="dot" style="background:var(${g.color})"></i>${esc(g.name)}${g.members ? ' <span class="info">ⓘ</span>' : ""}`}</td>
         <td class="num">${fmt(c.cur, m.fmt)}</td><td class="num muted">${c.state === "short" ? "–" : fmt(c.prev, m.fmt)}</td>
         <td class="num">${deltaHtml(c, METRIC)}</td>
         <td class="num"><span class="bar"><i style="width:${Math.round(s / totalSess * 100)}%"></i></span>${(s / totalSess * 100).toFixed(1)}%</td></tr>`;
@@ -581,7 +596,9 @@ function renderChannels(R) {
 // ---------- 차트: 선택 기간(실선) + 비교 기간(점선)을 같은 날짜 순서로 겹쳐 보기
 function drawChart(R) {
   const meta = DATA.metrics[METRIC];
-  const shown = [ALL, ...channelGroups(P)].filter((g) => ON.has(g.key));
+  const groups = channelGroups(P);
+  // 채널 데이터가 없는 페이지는 전체 선만, 있으면 켜 둔 채널들을 각각 그림
+  const shown = groups.length ? groups.filter((g) => onSet().has(g.key)) : [ALL];
   const base = rowsIn(SEL.daily, R.from, R.to), labels = base.map((r) => r[0]);
   const offset = diffDays(R.from, R.pFrom), prevDates = labels.map((d) => addDays(d, offset));
   const single = shown.length === 1;
@@ -597,11 +614,12 @@ function drawChart(R) {
       tension: 0.25, spanGaps: true, order: 2 });
   }
   $("chart-title").textContent = `${meta.label} · 일별 추이`;
-  $("chart-sub").textContent = single ? `${shown[0].name} · 아래 버튼으로 채널을 켜고 끌 수 있어요` : `${shown.length}개 계열 비교 중 · 비교 기간 점선은 하나만 켰을 때 보여요`;
+  $("chart-sub").textContent = !shown.length ? "표시할 채널을 하나 이상 켜 주세요"
+    : single ? `${shown[0].name} · 비교 기간과 함께 보는 중` : `채널 ${shown.length}개 표시 중 · 채널을 하나만 켜면 비교 기간 점선이 함께 나와요`;
   $("lg-cur").textContent = `${R.label} (${ymd(R.from)}~${ymd(R.to)})`;
   $("lg-cmp").textContent = `${R.cmpName} (${ymd(R.pFrom)}~${ymd(R.pTo)})`;
   $("lg-cmp").parentElement.hidden = !single;
-  document.querySelector(".sw-cur").style.background = css(shown[0].color);
+  document.querySelector(".sw-cur").style.background = shown.length ? css(shown[0].color) : css("--muted");
 
   const releaseDates = [...new Set(P.pages.map((p) => p.date))];
   const marks = releaseDates.map((d) => ({ d, i: labels.indexOf(d), mine: d === SEL.date })).filter((m) => m.i >= 0);
