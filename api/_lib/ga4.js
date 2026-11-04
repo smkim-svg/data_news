@@ -137,6 +137,42 @@ export async function fetchPageData(product, page) {
     demo: !hasGA4(), fetchedAt: new Date().toISOString() };
 }
 
+// ---------- 기간 순 사용자 수 (중복 제거) — 전체 + 채널별
+//   ranges: { cur: [from, to], cmp: [from, to] }
+export async function fetchRangeUsers(product, page, ranges) {
+  const names = Object.keys(ranges);
+  if (!hasGA4()) {   // 로컬 확인용: 일별 합의 80% 를 순 사용자로 가정
+    const d = await fetchPageData(product, page), out = { demo: true };
+    for (const n of names) {
+      const [f, t] = ranges[n], inR = (date) => date >= f && date <= t;
+      const idx = d.daily.map((r, i) => (inR(r[0]) ? i : -1)).filter((i) => i >= 0);
+      const u = RAW.indexOf("activeUsers");
+      out[n] = { total: Math.round(idx.reduce((a, i) => a + d.daily[i][u + 1], 0) * 0.8), channels: {} };
+      for (const [ch, rows] of Object.entries(d.channels)) out[n].channels[ch] = Math.round(idx.reduce((a, i) => a + (rows[i] ? rows[i][u] : 0), 0) * 0.8);
+    }
+    return out;
+  }
+  const dim = await channelDimension(product.propertyId, product.channelGroup);
+  const body = (dims) => ({
+    dateRanges: names.map((n) => ({ startDate: ranges[n][0], endDate: ranges[n][1], name: n })),
+    dimensions: dims.map((name) => ({ name })),
+    metrics: [{ name: "activeUsers" }],
+    dimensionFilter: pageFilter(page.paths, page.match),
+    limit: 10000,
+  });
+  const [t, c] = await Promise.all([ga(`properties/${product.propertyId}:runReport`, body([])),
+    ga(`properties/${product.propertyId}:runReport`, body([dim.api]))]);
+  const out = Object.fromEntries(names.map((n) => [n, { total: 0, channels: {} }]));
+  // 기간이 여러 개면 GA4 가 dateRange 열을 붙여 줌 → 값이 기간 이름인 칸으로 구분
+  const which = (row) => row.dimensionValues.map((v) => v.value).find((v) => names.includes(v)) || names[0];
+  for (const row of t.rows || []) out[which(row)].total = Number(row.metricValues[0].value) || 0;
+  for (const row of c.rows || []) {
+    const ch = row.dimensionValues.map((v) => v.value).find((v) => !names.includes(v)) || "(not set)";
+    out[which(row)].channels[ch] = Number(row.metricValues[0].value) || 0;
+  }
+  return out;
+}
+
 // ---------- GA4 키가 없을 때(로컬 확인용) 가짜 데이터
 function demoData(dates, page) {
   let seed = [...page.id].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7);

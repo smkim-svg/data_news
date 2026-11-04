@@ -238,6 +238,9 @@
         <div class="seg seg-sm" id="modes" role="group" aria-label="비교 기준">
           <button data-mode="prev">이전 기간 대비</button><button data-mode="yoy">전년 같은 기간 대비</button>
         </div>
+        <div class="seg seg-sm" id="aggs" role="group" aria-label="숫자 보기 방식">
+          <button data-agg="avg" title="기간 동안 하루 평균">일평균</button><button data-agg="sum" title="기간 전체 누적 (사용자는 중복 제거한 순 사용자)">기간 합계</button>
+        </div>
         <div class="compare" id="compare"></div>
       </div>
 
@@ -335,6 +338,7 @@ function fmt(v, kind) {
   return Math.round(v).toLocaleString("ko-KR");
 }
 function deltaHtml(c, key) {
+  if (c.state === "loading") return '<span class="delta flat">계산 중…</span>';
   if (c.state === "new") return '<span class="delta new">신규</span>';
   if (c.delta == null) return '<span class="delta flat">–</span>';
   const d = c.delta, lower = DATA.metrics[key].lowerIsBetter;
@@ -348,6 +352,8 @@ let DATA, IDX, P, SEL, chart;
 const pending = new Map();   // 불러오는 중인 페이지 id → Promise
 let PERIOD = { unit: "w1", start: null };   // unit+start 또는 { unit: null, from, to } (직접 선택)
 let MODE = "prev";                          // prev: 이전 기간 대비, yoy: 전년 같은 기간 대비
+let AGG = "avg";                            // avg: 일평균, sum: 기간 합계 (사용자는 GA4 순 사용자)
+const TOT = new Map();                      // 기간 순 사용자 조회 결과 캐시
 let ON = null;                              // 차트에 켜 둔 채널 (null = 모든 채널). "전체" 버튼은 모두 켜기/끄기
 const OPEN = new Set();                     // 채널별을 펼친 카드
 let METRIC = PRIMARY;
@@ -399,10 +405,10 @@ function seriesRows(page, key) {
   return seriesCache.get(ck);
 }
 function rowsIn(rows, from, to) { return rows.filter((r) => r[0] >= from && r[0] <= to); }
-function aggregate(rows, key) {
+function aggregate(rows, key, agg = "avg") {
   if (!rows.length) return null;
   const m = DATA.metrics[key], v = (r, k) => r[IDX[k]];
-  if (m.agg === "avg") return rows.reduce((a, r) => a + v(r, key), 0) / rows.length;
+  if (m.agg === "avg") return rows.reduce((a, r) => a + v(r, key), 0) / (agg === "sum" ? 1 : rows.length);
   if (m.agg === "weighted") {
     const s = rows.reduce((a, r) => a + v(r, "sessions"), 0);
     return s ? rows.reduce((a, r) => a + v(r, key) * v(r, "sessions"), 0) / s : 0;
@@ -478,10 +484,42 @@ function range() {
   }
   return { from, to, n, pFrom, pTo, label, cmpName };
 }
-/** 선택 기간 vs 비교 기간 */
-function compare(rows, key, R = range()) {
+/** 기간 합계 모드에서 순 사용자 (series: "__all" | 채널 | "__other") — 아직 없으면 undefined */
+function uniqueUsers(R, series) {
+  const t = TOT.get(totKey(R));
+  if (!t || t.loading || t.error) return undefined;
+  const pick = (part) => {
+    if (series === "__all") return part.total;
+    if (series === "__other") return channelGroups(P).find((g) => g.key === "__other").members.reduce((a, ch) => a + (part.channels[ch] || 0), 0);
+    return part.channels[series] || 0;
+  };
+  return { cur: pick(t.cur), prev: pick(t.cmp) };
+}
+const totKey = (R) => `${SEL.key}|${R.from}|${R.to}|${R.pFrom}|${R.pTo}`;
+function ensureTotals(R) {
+  if (AGG !== "sum" || !SEL || TOT.has(totKey(R))) return;
+  const key = totKey(R);
+  TOT.set(key, { loading: true });
+  api(`/api/totals?id=${encodeURIComponent(SEL.key)}&from=${R.from}&to=${R.to}&pFrom=${R.pFrom}&pTo=${R.pTo}`)
+    .then((d) => TOT.set(key, d.error ? { error: d.error } : d))
+    .catch((e) => TOT.set(key, { error: e.message }))
+    .finally(() => { if (AGG === "sum" && SEL && totKey(range()) === key) renderDetail(); });
+}
+/** 지표 이름 (기간 합계 모드면 "(일평균)" 대신 합계 표시) */
+function metricLabel(k) {
+  const m = DATA.metrics[k];
+  if (AGG !== "sum" || m.agg !== "avg") return m.label;
+  return m.label.replace("(일평균)", k === "activeUsers" ? "(기간 순 사용자)" : "(기간 합계)");
+}
+/** 선택 기간 vs 비교 기간. series 를 주면 기간 합계 모드에서 사용자를 순 사용자로 */
+function compare(rows, key, R = range(), series = null, agg = AGG) {
   const cur = rowsIn(rows, R.from, R.to), prev = rowsIn(rows, R.pFrom, R.pTo);
-  const c = aggregate(cur, key), p = aggregate(prev, key);
+  let c = aggregate(cur, key, agg), p = aggregate(prev, key, agg);
+  if (agg === "sum" && key === "activeUsers" && series) {
+    const u = uniqueUsers(R, series);
+    if (!u) return { cur: null, prev: null, delta: null, state: "loading" };
+    c = u.cur; p = u.prev;
+  }
   const need = diffDays(R.pFrom, R.pTo) + 1;
   const users = (rs) => rs.reduce((a, r) => a + r[IDX.activeUsers], 0);
   if (prev.length < need) return { cur: c, prev: p, delta: null, state: "short" };
@@ -496,6 +534,7 @@ function readHash() {
   else if (UNITS[h.get("unit")]) PERIOD = { unit: h.get("unit"), start: h.get("start") };
   if (h.get("cmp") === "yoy") MODE = "yoy";
   if (DATA.metrics[h.get("metric")]) METRIC = h.get("metric");
+  if (h.get("agg") === "sum") AGG = "sum";
   return { product: h.get("product"), page: h.get("page") };
 }
 function writeHash() {
@@ -504,6 +543,7 @@ function writeHash() {
   if (PERIOD.unit) { h.set("unit", PERIOD.unit); const b = currentBlock(); if (b) h.set("start", b.start); else if (PERIOD.unit === "since" && SEL) h.set("start", sinceStart()); }
   else { h.set("from", PERIOD.from); h.set("to", PERIOD.to); }
   if (MODE === "yoy") h.set("cmp", "yoy");
+  if (AGG === "sum") h.set("agg", "sum");
   if (METRIC !== PRIMARY) h.set("metric", METRIC);
   history.replaceState(null, "", "#" + h.toString());
 }
@@ -587,7 +627,7 @@ function renderList() {
       let m;
       if (r.loading || (!r.daily && !r.error)) m = '<span class="spin"></span>';
       else if (r.error) m = '<span class="delta down">오류</span>';
-      else { SEL = r; const c = compare(r.daily, PRIMARY); m = `${deltaHtml(c, PRIMARY)}<small>${fmt(c.cur, "int")}명/일</small>`; }
+      else { SEL = r; const c = compare(r.daily, PRIMARY, range(), null, "avg"); m = `${deltaHtml(c, PRIMARY)}<small>${fmt(c.cur, "int")}명/일</small>`; }
       return `<li><button class="item" data-key="${esc(r.key)}" aria-current="${keepSel && r.key === keepSel.key}">
         <span class="t" title="${esc(r.name)}">${esc(r.name)}${r.dates.length > 1 ? `<span class="rc">배포 ${r.dates.length}회</span>` : ""}</span>
         <span class="d" title="${esc(pathText(r))}">${esc(pathText(r))}</span>
@@ -647,25 +687,32 @@ function renderDetail() {
     return;
   }
   const groups = channelGroups(P);
+  ensureTotals(R);
+  document.querySelectorAll("#aggs button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.agg === AGG)));
   $("kpis").innerHTML = Object.entries(DATA.metrics).map(([k, m]) => {
-    const c = compare(r.daily, k, R);
-    const sub = c.state === "short" ? `<span class="ba" style="margin:0">비교 기간 데이터 없음</span>`
+    const c = compare(r.daily, k, R, "__all");
+    const sub = c.state === "loading" ? `<span class="ba" style="margin:0"><span class="spin"></span> GA4에서 순 사용자 계산 중…</span>`
+      : c.state === "short" ? `<span class="ba" style="margin:0">비교 기간 데이터 없음</span>`
       : c.state === "new" ? `${deltaHtml(c, k)}<span class="ba">비교 기간엔 방문 없음</span>`
       : `${deltaHtml(c, k)}<span class="ba">비교 ${fmt(c.prev, m.fmt)}</span>`;
     const chRows = groups.map((g) => {
-      const cc = compare(seriesRows(r, g.key), k, R);
-      return `<li><i class="dot" style="background:var(${g.color})"></i><span class="n" title="${esc(g.name)}">${esc(g.name)}</span><span>${fmt(cc.cur, m.fmt)}</span>${deltaHtml(cc, k)}</li>`;
+      const cc = compare(seriesRows(r, g.key), k, R, g.key);
+      return `<li><i class="dot" style="background:var(${g.color})"></i><span class="n" title="${esc(g.name)}">${esc(g.name)}</span><span>${cc.state === "loading" ? "…" : fmt(cc.cur, m.fmt)}</span>${deltaHtml(cc, k)}</li>`;
     }).join("");
     return `<div class="tile" data-metric="${k}" aria-pressed="${k === METRIC}">
-      <button class="tile-main" data-metric="${k}"><span class="k">${esc(m.label)}${m.lowerIsBetter ? ' <span class="hint">낮을수록 좋음</span>' : ""}</span>
-        <span class="v">${fmt(c.cur, m.fmt)}</span><span>${sub}</span></button>
+      <button class="tile-main" data-metric="${k}"><span class="k">${esc(metricLabel(k))}${m.lowerIsBetter ? ' <span class="hint">낮을수록 좋음</span>' : ""}</span>
+        <span class="v">${c.state === "loading" ? '<span class="sub">…</span>' : fmt(c.cur, m.fmt)}</span><span>${sub}</span></button>
       ${groups.length ? `<details class="tile-ch" data-metric="${k}"${OPEN.has(k) ? " open" : ""}><summary>채널별</summary><ul>${chRows}</ul></details>` : ""}
     </div>`;
   }).join("");
   $("kpis").querySelectorAll(".tile-main").forEach((b) => b.onclick = () => setMetric(b.dataset.metric, true));
   $("kpis").querySelectorAll(".tile-ch").forEach((d) => d.addEventListener("toggle", () => { d.open ? OPEN.add(d.dataset.metric) : OPEN.delete(d.dataset.metric); syncFoldAll(); }));
   syncFoldAll();
-  $("kpi-note").textContent = "카드를 누르면 아래 차트가 그 지표로 바뀌어요. 합계 지표는 일평균, 비율 지표는 세션 가중 평균이에요."
+  const errT = AGG === "sum" ? TOT.get(totKey(R))?.error : null;
+  $("kpi-note").textContent = (AGG === "sum"
+    ? "기간 합계: 조회수·세션·키 이벤트는 기간 동안 더한 값, 활성 사용자는 GA4에서 중복을 뺀 순 사용자예요. 비율 지표는 그대로예요."
+    : "카드를 누르면 아래 차트가 그 지표로 바뀌어요. 합계 지표는 일평균, 비율 지표는 세션 가중 평균이에요.")
+    + (errT ? ` (순 사용자 조회 실패: ${errT})` : "")
     + (R.label.includes("진행 중") ? " 진행 중인 기간은 비교 기간도 같은 일수만큼만 비교해요." : "");
   renderChannels(R);
   drawChart(R);
@@ -705,15 +752,15 @@ function renderChannels(R) {
   $("chips").innerHTML = all.map((g) => `<button class="chip" data-key="${esc(g.key)}" aria-pressed="${isOn(g.key)}"${g.key === "__all" ? ' title="모든 채널 켜기/끄기"' : ""}>${g.key === "__all" ? "" : `<i class="dot" style="background:var(${g.color})"></i>`}${esc(g.name)}</button>`).join("");
   $("chips").querySelectorAll(".chip").forEach((b) => b.onclick = () => toggleSeries(b.dataset.key));
   // 표
-  $("ch-title").textContent = `채널별 · ${m.label}`;
+  $("ch-title").textContent = `채널별 · ${metricLabel(METRIC)}`;
   $("ch-group").textContent = SEL.channelGroup ? `기준: ${SEL.channelGroup}` : "";
   $("ch-table").innerHTML = `<colgroup><col class="c-name"><col class="c-num"><col class="c-num"><col class="c-delta"><col class="c-share"></colgroup><thead><tr><th>채널</th><th class="num">선택 기간</th><th class="num" title="${esc(R.cmpName)}">${R.cmpName.includes("전년") ? "전년" : "비교 기간"}</th><th class="num">변화</th><th class="num">세션 비중</th></tr></thead>
     <tbody>${all.map((g) => {
-      const rows = seriesRows(SEL, g.key), c = compare(rows, METRIC, R), s = sess(rows);
+      const rows = seriesRows(SEL, g.key), c = compare(rows, METRIC, R, g.key), s = sess(rows);
       const tip = g.members ? ` title="${esc(g.members.join(", "))}"` : ` title="${esc(g.name)}"`;
       return `<tr data-key="${esc(g.key)}" aria-selected="${isOn(g.key)}" tabindex="0">
         <td class="name"${tip}>${g.key === "__all" ? "<b>전체</b>" : `<i class="dot" style="background:var(${g.color})"></i>${esc(g.name)}${g.members ? ' <span class="info">ⓘ</span>' : ""}`}</td>
-        <td class="num">${fmt(c.cur, m.fmt)}</td><td class="num muted">${c.state === "short" ? "–" : fmt(c.prev, m.fmt)}</td>
+        <td class="num">${c.state === "loading" ? "…" : fmt(c.cur, m.fmt)}</td><td class="num muted">${c.state === "short" || c.state === "loading" ? "–" : fmt(c.prev, m.fmt)}</td>
         <td class="num">${deltaHtml(c, METRIC)}</td>
         <td class="num"><span class="bar"><i style="width:${Math.round(s / totalSess * 100)}%"></i></span>${(s / totalSess * 100).toFixed(1)}%</td></tr>`;
     }).join("")}</tbody>`;
@@ -822,6 +869,7 @@ function drawChart(R) {
 function setUnit(unit) { PERIOD = { unit, start: null }; renderAll(); }
 function setBlock(start) { PERIOD = { unit: PERIOD.unit, start }; renderAll(); }
 function setMode(mode) { MODE = mode; renderAll(); }
+function setAgg(agg) { AGG = agg; renderDetail(); writeHash(); }
 function setCustom() {
   let f = $("from").value, t = $("to").value;
   if (!f || !t) return;
@@ -918,6 +966,7 @@ api("/api/config")
     sel.onchange = () => setMetric(sel.value);
     document.querySelectorAll("#units button").forEach((b) => b.onclick = () => setUnit(b.dataset.unit));
     document.querySelectorAll("#modes button").forEach((b) => b.onclick = () => setMode(b.dataset.mode));
+    document.querySelectorAll("#aggs button").forEach((b) => b.onclick = () => setAgg(b.dataset.agg));
     $("block").addEventListener("change", (e) => setBlock(e.target.value));
     $("fold-all").onclick = () => {
       const keys = Object.keys(DATA.metrics), openAll = OPEN.size !== keys.length;
@@ -929,7 +978,7 @@ api("/api/config")
     $("to").addEventListener("change", setCustom);
     $("add-page").onclick = () => openEditor(null);
     $("edit-page").onclick = () => SEL && openEditor(SEL);
-    $("reload-page").onclick = () => { if (!SEL) return; SEL.daily = null; SEL.error = null; renderAll(); loadProduct(P, SEL.key); };
+    $("reload-page").onclick = () => { if (!SEL) return; for (const k of TOT.keys()) if (k.startsWith(SEL.key + "|")) TOT.delete(k); SEL.daily = null; SEL.error = null; renderAll(); loadProduct(P, SEL.key); };
     $("ed-add-date").onclick = () => dateRow("").querySelector("input").focus();
     $("ed-cancel").onclick = () => $("editor").close();
     $("ed-form").onsubmit = saveEditor;
