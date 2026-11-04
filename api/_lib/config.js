@@ -19,7 +19,11 @@ export async function loadConfig() {
     await setJSON(KEY, cfg);
   }
   // 나중에 기본 제품 목록에 추가된 제품은 자동으로 합침
-  for (const p of SEED.products) if (!cfg.products.some((x) => x.id === p.id)) cfg.products.push(p);
+  for (const p of SEED.products) {
+    const cur = cfg.products.find((x) => x.id === p.id);
+    if (!cur) cfg.products.push(p);
+    else for (const [k, v] of Object.entries(p)) if (cur[k] === undefined) cur[k] = v;   // 나중에 추가된 설정값 채우기
+  }
   return cfg;
 }
 

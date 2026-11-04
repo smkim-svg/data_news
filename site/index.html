@@ -511,6 +511,13 @@ function ensureTotals(R) {
     .catch((e) => TOT.set(key, { error: e.message }))
     .finally(() => { if (AGG === "sum" && SEL && totKey(range()) === key) renderDetail(); });
 }
+/** 카드 보조 설명 (로그인 클릭은 제품별 Label 값을 보여줌) */
+function hintOf(k) {
+  const m = DATA.metrics[k];
+  if (k === "login_click") return `${SEL && SEL.site ? "사이트 전체" : "페이지 기준"} · Label=${P.loginLabel || "gnb_login"}`;
+  if (m.hint && SEL && SEL.site && m.hint === "방문 페이지 기준") return "사이트 전체";
+  return m.hint || "";
+}
 /** 지표 이름 (기간 합계 모드면 "(일평균)" 대신 합계 표시) */
 function metricLabel(k) {
   const m = DATA.metrics[k];
@@ -601,14 +608,22 @@ function applyConfig(cfg) {
   $("demo").hidden = !cfg.demo;
   $("meta").textContent = `${longDate(cfg.dataThrough)}까지 데이터` + (cfg.storage === "memory" ? " · ⚠ 저장소 미연결(추가한 페이지가 유지되지 않아요)" : "");
 }
+// GA4 동시 요청 한도를 넘지 않도록 페이지는 2개씩만 동시에 불러옴 (선택한 페이지가 먼저)
+let running = 0; const waiting = [];
+function slot(fn) {
+  return new Promise((ok, fail) => {
+    const run = () => { running++; fn().then(ok, fail).finally(() => { running--; const next = waiting.shift(); if (next) next(); }); };
+    if (running < 2) run(); else waiting.push(run);
+  });
+}
 function loadPage(pg, refresh) {
   if (!refresh && (pg.daily || pg.error)) return Promise.resolve();
   if (pending.has(pg.key)) return pending.get(pg.key);
   pg.loading = true;
-  const job = api(`/api/data?id=${encodeURIComponent(pg.key)}${refresh ? "&refresh=1" : ""}`)
+  const job = slot(() => api(`/api/data?id=${encodeURIComponent(pg.key)}${refresh ? "&refresh=1" : ""}`))
     .then((d) => {
       if (d.error) { pg.error = d.error; pg.daily = null; return; }
-      Object.assign(pg, { daily: d.daily, channels: d.channels, channelGroup: d.channelGroup, error: null });
+      Object.assign(pg, { daily: d.daily, channels: d.channels, channelGroup: d.channelGroup, warnings: d.warnings || [], error: null });
       if (d.dataFrom < DATA.dataFrom) DATA.dataFrom = d.dataFrom;
     })
     .catch((e) => { pg.error = e.message; })
@@ -617,7 +632,8 @@ function loadPage(pg, refresh) {
   return job;
 }
 async function loadProduct(prod, refreshKey) {
-  const jobs = allPages(prod).map((pg) => loadPage(pg, pg.key === refreshKey));
+  const order = allPages(prod).sort((a, b) => (b === SEL) - (a === SEL));   // 보고 있는 페이지 먼저
+  const jobs = order.map((pg) => loadPage(pg, pg.key === refreshKey));
   if (!jobs.length) return;
   // 하나 끝날 때마다 화면 갱신 (선택한 페이지가 먼저 보이도록)
   jobs.forEach((j) => j.then(() => { if (P === prod) { groupCache.delete(prod.id); renderList(); if (SEL && !SEL.loading) renderDetail(); } }));
@@ -733,7 +749,7 @@ function renderDetail() {
       return `<li><i class="dot" style="background:var(${g.color})"></i><span class="n" title="${esc(g.name)}">${esc(g.name)}</span><span>${cc.state === "loading" ? "…" : fmt(cc.cur, m.fmt)}</span>${deltaHtml(cc, k)}</li>`;
     }).join("");
     return `<div class="tile" data-metric="${k}" aria-pressed="${k === METRIC}">
-      <button class="tile-main" data-metric="${k}"><span class="k">${esc(metricLabel(k))}${m.lowerIsBetter ? ' <span class="hint">낮을수록 좋음</span>' : ""}${m.hint ? ` <span class="hint">${esc(m.hint)}</span>` : ""}</span>
+      <button class="tile-main" data-metric="${k}"><span class="k">${esc(metricLabel(k))}${m.lowerIsBetter ? ' <span class="hint">낮을수록 좋음</span>' : ""}${hintOf(k) ? ` <span class="hint">${esc(hintOf(k))}</span>` : ""}</span>
         <span class="v">${c.state === "loading" ? '<span class="sub">…</span>' : fmt(c.cur, m.fmt)}</span><span>${sub}</span></button>
       ${groups.length ? `<details class="tile-ch" data-metric="${k}"${OPEN.has(k) ? " open" : ""}><summary>채널별</summary><ul>${chRows}</ul></details>` : ""}
     </div>`;
@@ -746,6 +762,7 @@ function renderDetail() {
     ? "기간 합계: 조회수·세션·이벤트 수는 기간 동안 더한 값, 활성 사용자는 GA4에서 중복을 뺀 순 사용자예요. 비율 지표는 그대로예요."
     : "카드를 누르면 아래 차트가 그 지표로 바뀌어요. 합계 지표는 일평균, 비율 지표는 세션 가중 평균이에요.")
     + (errT ? ` (순 사용자 조회 실패: ${errT})` : "")
+    + ((r.warnings || []).length ? ` ⚠ ${r.warnings.join(" ")}` : "")
     + (R.label.includes("진행 중") ? " 진행 중인 기간은 비교 기간도 같은 일수만큼만 비교해요." : "");
   renderChannels(R);
   drawChart(R);

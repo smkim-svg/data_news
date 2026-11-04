@@ -4,7 +4,7 @@ export const SEED = {
     { id: "remoteview", name: "리모트뷰", propertyId: "307717617" },
     { id: "remotemeeting", name: "리모트미팅", propertyId: "543595202" },
     { id: "airepoto", name: "AI레포토", propertyId: "477959686" },
-    { id: "remotecall", name: "리모트콜", propertyId: "270301647" },
+    { id: "remotecall", name: "리모트콜", propertyId: "270301647", loginLabel: "gnb_cta_webviewer" },
   ],
   pages: [
     { id: "rv-main", product: "remoteview", name: "메인", urls: ["https://content.rview.com/ko/"], match: "exact", releases: [{ date: "2026-06-04" }] },

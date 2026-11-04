@@ -4,7 +4,7 @@
 //   action: "updatePage" id, page: {...}
 //   action: "deletePage" id
 import { loadConfig, saveConfig, validatePage, withPaths, newId } from "./_lib/config.js";
-import { METRICS, RAW, dataThrough, LOOKBACK_DAYS, addDays } from "./_lib/metrics.js";
+import { METRICS, RAW, dataThrough, LOOKBACK_DAYS, addDays, DEFAULT_LOGIN_LABEL } from "./_lib/metrics.js";
 import { storeKind, del } from "./_lib/store.js";
 import { hasGA4 } from "./_lib/ga4.js";
 import { userEmail, readBody, send } from "./_lib/http.js";
@@ -13,7 +13,7 @@ function view(cfg) {
   const end = dataThrough();
   return {
     version: 6, metrics: METRICS, raw: RAW, dataThrough: end, dataFrom: addDays(end, -LOOKBACK_DAYS),
-    products: cfg.products.map(({ id, name }) => ({ id, name })),
+    products: cfg.products.map(({ id, name, loginLabel }) => ({ id, name, loginLabel: loginLabel || DEFAULT_LOGIN_LABEL })),
     pages: cfg.pages.map(withPaths),
     updatedAt: cfg.updatedAt, updatedBy: cfg.updatedBy,
     storage: storeKind(), demo: !hasGA4(),

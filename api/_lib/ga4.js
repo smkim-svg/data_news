@@ -1,7 +1,8 @@
 // GA4 Data API 를 서비스 계정으로 직접 호출 (외부 라이브러리 없이 Node 기본 기능만 사용)
 //   필요한 Vercel 환경 변수: GA4_SA_KEY = 서비스 계정 JSON 전체 내용
 import crypto from "node:crypto";
-import { RAW, PAGE_RAW, RATES, LANDING_EVENTS, LOOKBACK_DAYS, addDays, dataThrough } from "./metrics.js";
+import { RAW, PAGE_RAW, RATES, LANDING_EVENTS, LOOKBACK_DAYS, addDays, dataThrough,
+  CLICK_EVENT, DEFAULT_LOGIN_LABEL, LABEL_DIM_NAME } from "./metrics.js";
 import { getJSON, setJSON } from "./store.js";
 
 const API = "https://analyticsdata.googleapis.com/v1beta";
@@ -33,12 +34,17 @@ async function accessToken() {
   return j.access_token;
 }
 
-async function ga(path, body) {
+async function ga(path, body, attempt = 0) {
   const r = await fetch(`${API}/${path}`, {
     method: body ? "POST" : "GET",
     headers: { Authorization: `Bearer ${await accessToken()}`, "Content-Type": "application/json" },
     body: body ? JSON.stringify(body) : undefined,
   });
+  // 동시 요청 한도(429)·일시 오류(5xx)는 잠깐 쉬었다가 두 번까지 다시 시도
+  if ((r.status === 429 || r.status >= 500) && attempt < 2) {
+    await new Promise((ok) => setTimeout(ok, 1500 * (attempt + 1)));
+    return ga(path, body, attempt + 1);
+  }
   const j = await r.json().catch(() => ({}));
   if (!r.ok) {
     const msg = j.error?.message || r.status;
@@ -70,22 +76,38 @@ function landingEventFilter(paths, match) {
   return lp ? { andGroup: { expressions: [lp, ev] } } : ev;
 }
 
-// ---------- 맞춤 채널 그룹 찾기 (속성별 하루 캐시)
-async function channelDimension(propertyId, wanted = "") {
-  const key = `chdim:${propertyId}`;
+// ---------- 속성 메타데이터: 맞춤 채널 그룹 + "Label" 맞춤 측정기준 (속성별 하루 캐시)
+async function propertyDims(propertyId, wanted = "") {
+  const key = `dims:v2:${propertyId}`;
   const hit = await getJSON(key);
   if (hit) return hit;
-  let found = { api: DEFAULT_CHANNEL_DIM, name: "기본 채널 그룹" };
+  const found = { channel: { api: DEFAULT_CHANNEL_DIM, name: "기본 채널 그룹" }, label: null };
   try {
     const md = await ga(`properties/${propertyId}/metadata`);
-    let groups = (md.dimensions || []).filter((d) => d.apiName.startsWith("sessionCustomChannelGroup:"));
+    const dims = md.dimensions || [];
+    let groups = dims.filter((d) => d.apiName.startsWith("sessionCustomChannelGroup:"));
     if (wanted) groups = groups.filter((g) => g.uiName.toLowerCase().includes(wanted.toLowerCase())).concat(groups);
-    if (groups.length) found = { api: groups[0].apiName, name: groups[0].uiName };
+    if (groups.length) found.channel = { api: groups[0].apiName, name: groups[0].uiName };
+    const want = LABEL_DIM_NAME.toLowerCase();
+    const lab = dims.find((d) => d.apiName.startsWith("customEvent:") && d.uiName.trim().toLowerCase() === want)
+      || dims.find((d) => d.apiName.toLowerCase() === `customevent:${want}`);
+    if (lab) found.label = lab.apiName;
   } catch (e) {
     if (String(e.message).startsWith("권한 없음")) throw e;
   }
   await setJSON(key, found, 86400);
   return found;
+}
+const channelDimension = async (pid, wanted) => (await propertyDims(pid, wanted)).channel;
+
+/** 비동기 작업을 최대 n 개씩만 동시에 실행 (GA4 속성별 동시 요청 한도 보호) */
+async function pool(tasks, n = 3) {
+  const out = new Array(tasks.length);
+  let i = 0;
+  await Promise.all(Array.from({ length: Math.min(n, tasks.length) }, async () => {
+    while (i < tasks.length) { const k = i++; out[k] = await tasks[k](); }
+  }));
+  return out;
 }
 
 async function report(propertyId, start, end, filter, dims, metrics = PAGE_RAW) {
@@ -119,19 +141,32 @@ export async function fetchPageData(product, page) {
   const dates = dateList(start, end);
   const zero = RAW.map(() => 0);
   let total, byCh, groupName;
+  const warnings = [];
   if (hasGA4()) {
-    const dim = await channelDimension(product.propertyId, product.channelGroup);
+    const meta = await propertyDims(product.propertyId, product.channelGroup), dim = meta.channel;
     groupName = dim.name;
+    const pid = product.propertyId;
     const pf = page.paths.length ? pageFilter(page.paths, page.match) : undefined, ef = landingEventFilter(page.paths, page.match);
-    const [t, c, et, ec] = await Promise.all([
-      report(product.propertyId, start, end, pf, ["date"]),
-      report(product.propertyId, start, end, pf, ["date", dim.api]),
-      report(product.propertyId, start, end, ef, ["date", "eventName"], ["eventCount"]),
-      report(product.propertyId, start, end, ef, ["date", dim.api, "eventName"], ["eventCount"]),
+    // 로그인 버튼 클릭: 이 페이지(pagePath)에서 cta_id_click 이고 Label = 제품 로그인 라벨
+    const label = product.loginLabel || DEFAULT_LOGIN_LABEL;
+    const cf = meta.label ? { andGroup: { expressions: [
+      ...(pf ? [pf] : []),
+      { filter: { fieldName: "eventName", stringFilter: { matchType: "EXACT", value: CLICK_EVENT } } },
+      { filter: { fieldName: meta.label, stringFilter: { matchType: "EXACT", value: label } } },
+    ] } } : null;
+    if (!meta.label) warnings.push(`이 속성에서 "${LABEL_DIM_NAME}" 맞춤 측정기준을 찾지 못해 로그인 버튼 클릭은 0으로 보여요.`);
+    const [t, c, et, ec, ct, cc] = await pool([
+      () => report(pid, start, end, pf, ["date"]),
+      () => report(pid, start, end, pf, ["date", dim.api]),
+      () => report(pid, start, end, ef, ["date", "eventName"], ["eventCount"]),
+      () => report(pid, start, end, ef, ["date", dim.api, "eventName"], ["eventCount"]),
+      () => (cf ? report(pid, start, end, cf, ["date"], ["eventCount"]) : []),
+      () => (cf ? report(pid, start, end, cf, ["date", dim.api], ["eventCount"]) : []),
     ]);
     // 페이지 지표 + 방문 페이지 기준 이벤트 수를 RAW 순서로 합침
     const evAt = (ev) => PAGE_RAW.length + LANDING_EVENTS.indexOf(ev);
-    const pad = (v) => [...v, ...LANDING_EVENTS.map(() => 0)];
+    const pad = (v) => [...v, ...RAW.slice(PAGE_RAW.length).map(() => 0)];
+    const clickAt = RAW.indexOf("login_click");
     total = Object.fromEntries(t.map((r) => [r.date, pad(r.vals)]));
     for (const r of et) { const i = evAt(r.dims[0]); if (i >= PAGE_RAW.length) (total[r.date] ||= zero.slice())[i] += r.vals[0]; }
     byCh = {};
@@ -140,6 +175,8 @@ export async function fetchPageData(product, page) {
       const i = evAt(r.dims[1]); if (i < PAGE_RAW.length) continue;
       ((byCh[r.dims[0] || "(not set)"] ||= {})[r.date] ||= zero.slice())[i] += r.vals[0];
     }
+    for (const r of ct) (total[r.date] ||= zero.slice())[clickAt] += r.vals[0];
+    for (const r of cc) ((byCh[r.dims[0] || "(not set)"] ||= {})[r.date] ||= zero.slice())[clickAt] += r.vals[0];
   } else {
     ({ total, byCh } = demoData(dates, page));
     groupName = "맞춤 채널 그룹 (데모)";
@@ -150,7 +187,7 @@ export async function fetchPageData(product, page) {
     const rows = dates.map((d) => (days[d] ? days[d].map(round) : 0));
     if (rows.some(Boolean)) channels[ch] = rows;
   }
-  return { id: page.id, dataThrough: end, dataFrom: start, daily, channels, channelGroup: groupName,
+  return { id: page.id, dataThrough: end, dataFrom: start, daily, channels, channelGroup: groupName, warnings,
     demo: !hasGA4(), fetchedAt: new Date().toISOString() };
 }
 
@@ -205,7 +242,7 @@ function demoData(dates, page) {
       const q = k * (0.8 + rnd() * 0.4), users = base * share * q, sessions = users * 1.2;
       const er = Math.min(0.95, (ch === "직접 유입" ? 0.65 : 0.5) * q ** 0.2);
       const v = [Math.round(users * 1.6), Math.round(users), Math.round(sessions), er, 1 - er, users * 70 * q ** 0.5,
-        rnd() < sessions * 0.004 * q ? Math.ceil(rnd() * 2) : 0, rnd() < sessions * 0.002 * q ? 1 : 0];
+        rnd() < sessions * 0.004 * q ? Math.ceil(rnd() * 2) : 0, rnd() < sessions * 0.002 * q ? 1 : 0, Math.round(sessions * 0.05 * q * rnd())];
       byCh[ch][d] = v;
       RAW.forEach((n, i) => { day[i] += RATES.includes(n) ? v[i] * v[2] : v[i]; });   // v[2] = sessions
     }

@@ -13,6 +13,8 @@ export const METRICS = {
   // 주요 이벤트: 이 페이지가 "방문 페이지(Landing page)"인 세션에서 발생한 횟수
   nf_submit: { label: "nf_submit (일평균)", agg: "avg", fmt: "cnt", hint: "방문 페이지 기준" },
   trial_step3_activate_gtm: { label: "trial_step3_activate_gtm (일평균)", agg: "avg", fmt: "cnt", hint: "방문 페이지 기준" },
+  // 로그인 버튼 클릭: 이 페이지에서 발생한 cta_id_click 중 Label = 제품별 로그인 라벨 (기본 gnb_login)
+  login_click: { label: "로그인 버튼 클릭 (일평균)", agg: "avg", fmt: "cnt", hint: "페이지 기준 · cta_id_click" },
 };
 
 // 방문 페이지 기준으로 셀 이벤트 (이벤트 이름 = METRICS 키)
@@ -21,7 +23,12 @@ export const LANDING_EVENTS = ["nf_submit", "trial_step3_activate_gtm"];
 // GA4 에서 실제로 받아오는 지표 (최대 10개)
 //   PAGE_RAW: 페이지 경로(pagePath) 기준으로 받는 값, 뒤에 LANDING_EVENTS 가 붙음
 export const PAGE_RAW = ["screenPageViews", "activeUsers", "sessions", "engagementRate", "bounceRate", "userEngagementDuration"];
-export const RAW = [...PAGE_RAW, ...LANDING_EVENTS];
+export const RAW = [...PAGE_RAW, ...LANDING_EVENTS, "login_click"];
+
+// 로그인 버튼 클릭 조건
+export const CLICK_EVENT = "cta_id_click";
+export const DEFAULT_LOGIN_LABEL = "gnb_login";
+export const LABEL_DIM_NAME = "Label";   // GA4 맞춤 측정기준 이름 (속성마다 API 이름을 자동으로 찾음)
 export const RATES = ["engagementRate", "bounceRate"];
 
 export const LOOKBACK_DAYS = 570;   // 6개월 + 전년 같은 6개월까지
