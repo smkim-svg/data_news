@@ -334,6 +334,7 @@ const chName = (c) => (CH_KO[c] ? `${CH_KO[c]} <span class="sub">${esc(c)}</span
 function fmt(v, kind) {
   if (v == null || Number.isNaN(v)) return "–";
   if (kind === "pct") return (v * 100).toFixed(1) + "%";
+  if (kind === "cnt") return v >= 100 || Math.abs(v - Math.round(v)) < 0.05 ? Math.round(v).toLocaleString("ko-KR") : v.toFixed(1);
   if (kind === "sec") { const m = Math.floor(v / 60), s = Math.round(v % 60); return m ? `${m}분 ${String(s).padStart(2, "0")}초` : `${s}초`; }
   return Math.round(v).toLocaleString("ko-KR");
 }
@@ -366,10 +367,11 @@ function series(page, ch) {
   if (!seriesCache.has(k)) seriesCache.set(k, page.daily.map((r, i) => [r[0], ...((page.channels[ch] || [])[i] || ZERO())]));
   return seriesCache.get(k);
 }
-const RATES = ["engagementRate", "bounceRate", "sessionKeyEventRate"];
+// 세션 가중 평균으로 합쳐야 하는 비율 값 (지표 정의에서 자동으로)
+const RATES_OF = () => Object.entries(DATA.metrics).filter(([, m]) => m.agg === "weighted").map(([k]) => k);
 /** 여러 채널을 하루 단위로 합침 (합계는 더하고, 비율은 세션 가중 평균) */
 function combine(list) {
-  const base = list[0];
+  const base = list[0], RATES = RATES_OF();
   return base.map((r, i) => {
     const out = [r[0], ...ZERO()];
     list.forEach((rows) => DATA.raw.forEach((k, j) => {
@@ -700,7 +702,7 @@ function renderDetail() {
       return `<li><i class="dot" style="background:var(${g.color})"></i><span class="n" title="${esc(g.name)}">${esc(g.name)}</span><span>${cc.state === "loading" ? "…" : fmt(cc.cur, m.fmt)}</span>${deltaHtml(cc, k)}</li>`;
     }).join("");
     return `<div class="tile" data-metric="${k}" aria-pressed="${k === METRIC}">
-      <button class="tile-main" data-metric="${k}"><span class="k">${esc(metricLabel(k))}${m.lowerIsBetter ? ' <span class="hint">낮을수록 좋음</span>' : ""}</span>
+      <button class="tile-main" data-metric="${k}"><span class="k">${esc(metricLabel(k))}${m.lowerIsBetter ? ' <span class="hint">낮을수록 좋음</span>' : ""}${m.hint ? ` <span class="hint">${esc(m.hint)}</span>` : ""}</span>
         <span class="v">${c.state === "loading" ? '<span class="sub">…</span>' : fmt(c.cur, m.fmt)}</span><span>${sub}</span></button>
       ${groups.length ? `<details class="tile-ch" data-metric="${k}"${OPEN.has(k) ? " open" : ""}><summary>채널별</summary><ul>${chRows}</ul></details>` : ""}
     </div>`;
@@ -710,7 +712,7 @@ function renderDetail() {
   syncFoldAll();
   const errT = AGG === "sum" ? TOT.get(totKey(R))?.error : null;
   $("kpi-note").textContent = (AGG === "sum"
-    ? "기간 합계: 조회수·세션·키 이벤트는 기간 동안 더한 값, 활성 사용자는 GA4에서 중복을 뺀 순 사용자예요. 비율 지표는 그대로예요."
+    ? "기간 합계: 조회수·세션·이벤트 수는 기간 동안 더한 값, 활성 사용자는 GA4에서 중복을 뺀 순 사용자예요. 비율 지표는 그대로예요."
     : "카드를 누르면 아래 차트가 그 지표로 바뀌어요. 합계 지표는 일평균, 비율 지표는 세션 가중 평균이에요.")
     + (errT ? ` (순 사용자 조회 실패: ${errT})` : "")
     + (R.label.includes("진행 중") ? " 진행 중인 기간은 비교 기간도 같은 일수만큼만 비교해요." : "");

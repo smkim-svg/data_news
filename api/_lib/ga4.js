@@ -1,7 +1,7 @@
 // GA4 Data API 를 서비스 계정으로 직접 호출 (외부 라이브러리 없이 Node 기본 기능만 사용)
 //   필요한 Vercel 환경 변수: GA4_SA_KEY = 서비스 계정 JSON 전체 내용
 import crypto from "node:crypto";
-import { RAW, RATES, LOOKBACK_DAYS, addDays, dataThrough } from "./metrics.js";
+import { RAW, PAGE_RAW, RATES, LANDING_EVENTS, LOOKBACK_DAYS, addDays, dataThrough } from "./metrics.js";
 import { getJSON, setJSON } from "./store.js";
 
 const API = "https://analyticsdata.googleapis.com/v1beta";
@@ -56,12 +56,18 @@ export function normalizePath(p) {
   p = p.split("?")[0].split("#")[0];
   return p.startsWith("/") ? p : "/" + p;
 }
-function pageFilter(paths, match) {
+function pageFilter(paths, match, field = "pagePath") {
   if (!paths.length) return undefined;
   const exprs = paths.map((p) => match === "prefix"
-    ? { filter: { fieldName: "pagePath", stringFilter: { matchType: "BEGINS_WITH", value: p } } }
-    : { filter: { fieldName: "pagePath", inListFilter: { values: [...new Set([p, p.replace(/\/+$/, "") || "/", p === "/" ? "/" : p.replace(/\/+$/, "") + "/"])] } } });
+    ? { filter: { fieldName: field, stringFilter: { matchType: "BEGINS_WITH", value: p } } }
+    : { filter: { fieldName: field, inListFilter: { values: [...new Set([p, p.replace(/\/+$/, "") || "/", p === "/" ? "/" : p.replace(/\/+$/, "") + "/"])] } } });
   return exprs.length === 1 ? exprs[0] : { orGroup: { expressions: exprs } };
+}
+/** 방문 페이지(landingPage)가 이 페이지이고, 이벤트 이름이 LANDING_EVENTS 중 하나 */
+function landingEventFilter(paths, match) {
+  const ev = { filter: { fieldName: "eventName", inListFilter: { values: LANDING_EVENTS } } };
+  const lp = pageFilter(paths, match, "landingPage");
+  return lp ? { andGroup: { expressions: [lp, ev] } } : ev;
 }
 
 // ---------- 맞춤 채널 그룹 찾기 (속성별 하루 캐시)
@@ -82,14 +88,14 @@ async function channelDimension(propertyId, wanted = "") {
   return found;
 }
 
-async function report(propertyId, start, end, paths, match, dims) {
+async function report(propertyId, start, end, filter, dims, metrics = PAGE_RAW) {
   const out = [];
   for (let offset = 0; ; offset += 100000) {
     const j = await ga(`properties/${propertyId}:runReport`, {
       dateRanges: [{ startDate: start, endDate: end }],
       dimensions: dims.map((name) => ({ name })),
-      metrics: RAW.map((name) => ({ name })),
-      dimensionFilter: pageFilter(paths, match),
+      metrics: metrics.map((name) => ({ name })),
+      dimensionFilter: filter,
       limit: 100000, offset,
     });
     for (const row of j.rows || []) {
@@ -116,13 +122,24 @@ export async function fetchPageData(product, page) {
   if (hasGA4()) {
     const dim = await channelDimension(product.propertyId, product.channelGroup);
     groupName = dim.name;
-    const [t, c] = await Promise.all([
-      report(product.propertyId, start, end, page.paths, page.match, ["date"]),
-      report(product.propertyId, start, end, page.paths, page.match, ["date", dim.api]),
+    const pf = page.paths.length ? pageFilter(page.paths, page.match) : undefined, ef = landingEventFilter(page.paths, page.match);
+    const [t, c, et, ec] = await Promise.all([
+      report(product.propertyId, start, end, pf, ["date"]),
+      report(product.propertyId, start, end, pf, ["date", dim.api]),
+      report(product.propertyId, start, end, ef, ["date", "eventName"], ["eventCount"]),
+      report(product.propertyId, start, end, ef, ["date", dim.api, "eventName"], ["eventCount"]),
     ]);
-    total = Object.fromEntries(t.map((r) => [r.date, r.vals]));
+    // 페이지 지표 + 방문 페이지 기준 이벤트 수를 RAW 순서로 합침
+    const evAt = (ev) => PAGE_RAW.length + LANDING_EVENTS.indexOf(ev);
+    const pad = (v) => [...v, ...LANDING_EVENTS.map(() => 0)];
+    total = Object.fromEntries(t.map((r) => [r.date, pad(r.vals)]));
+    for (const r of et) { const i = evAt(r.dims[0]); if (i >= PAGE_RAW.length) (total[r.date] ||= zero.slice())[i] += r.vals[0]; }
     byCh = {};
-    for (const r of c) (byCh[r.dims[0] || "(not set)"] ||= {})[r.date] = r.vals;
+    for (const r of c) (byCh[r.dims[0] || "(not set)"] ||= {})[r.date] = pad(r.vals);
+    for (const r of ec) {
+      const i = evAt(r.dims[1]); if (i < PAGE_RAW.length) continue;
+      ((byCh[r.dims[0] || "(not set)"] ||= {})[r.date] ||= zero.slice())[i] += r.vals[0];
+    }
   } else {
     ({ total, byCh } = demoData(dates, page));
     groupName = "맞춤 채널 그룹 (데모)";
@@ -188,9 +205,9 @@ function demoData(dates, page) {
       const q = k * (0.8 + rnd() * 0.4), users = base * share * q, sessions = users * 1.2;
       const er = Math.min(0.95, (ch === "직접 유입" ? 0.65 : 0.5) * q ** 0.2);
       const v = [Math.round(users * 1.6), Math.round(users), Math.round(sessions), er, 1 - er, users * 70 * q ** 0.5,
-        Math.round(sessions * 0.03 * q), Math.min(1, 0.025 * q)];
+        rnd() < sessions * 0.004 * q ? Math.ceil(rnd() * 2) : 0, rnd() < sessions * 0.002 * q ? 1 : 0];
       byCh[ch][d] = v;
-      RAW.forEach((n, i) => { day[i] += RATES.includes(n) ? v[i] * v[2] : v[i]; });
+      RAW.forEach((n, i) => { day[i] += RATES.includes(n) ? v[i] * v[2] : v[i]; });   // v[2] = sessions
     }
     RAW.forEach((n, i) => { if (RATES.includes(n)) day[i] = day[2] ? day[i] / day[2] : 0; });
     total[d] = day;

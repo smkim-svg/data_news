@@ -5,7 +5,7 @@ import crypto from "node:crypto";
 import { loadConfig, withPaths } from "./_lib/config.js";
 import { fetchPageData } from "./_lib/ga4.js";
 import { getJSON, setJSON } from "./_lib/store.js";
-import { dataThrough } from "./_lib/metrics.js";
+import { dataThrough, RAW } from "./_lib/metrics.js";
 import { send } from "./_lib/http.js";
 
 export default async function handler(req, res) {
@@ -18,7 +18,7 @@ export default async function handler(req, res) {
     const page = withPaths(raw);
     const product = cfg.products.find((p) => p.id === page.product);
     // 설정(경로·배포일)이나 기준일이 바뀌면 캐시 키가 달라져서 자동으로 다시 조회
-    const sig = crypto.createHash("sha1").update(JSON.stringify([product.propertyId, page.paths, page.match, page.releases.map((r) => r.date).sort()[0]])).digest("hex").slice(0, 10);
+    const sig = crypto.createHash("sha1").update(JSON.stringify([RAW, product.propertyId, page.paths, page.match, page.releases.map((r) => r.date).sort()[0]])).digest("hex").slice(0, 10);
     const key = `data:${id}`;
     const cached = await getJSON(key);
     if (cached && cached.sig === sig && cached.dataThrough === dataThrough() && url.searchParams.get("refresh") !== "1") {

@@ -10,14 +10,19 @@ export const METRICS = {
   engagementRate: { label: "참여율", agg: "weighted", fmt: "pct" },
   bounceRate: { label: "이탈률", agg: "weighted", fmt: "pct", lowerIsBetter: true },
   avgEngagementTime: { label: "사용자당 참여 시간", agg: "ratio", num: "userEngagementDuration", den: "activeUsers", fmt: "sec" },
-  keyEvents: { label: "키 이벤트 (일평균)", agg: "avg", fmt: "int" },
-  sessionKeyEventRate: { label: "세션 전환율", agg: "weighted", fmt: "pct" },
+  // 주요 이벤트: 이 페이지가 "방문 페이지(Landing page)"인 세션에서 발생한 횟수
+  nf_submit: { label: "nf_submit (일평균)", agg: "avg", fmt: "cnt", hint: "방문 페이지 기준" },
+  trial_step3_activate_gtm: { label: "trial_step3_activate_gtm (일평균)", agg: "avg", fmt: "cnt", hint: "방문 페이지 기준" },
 };
 
+// 방문 페이지 기준으로 셀 이벤트 (이벤트 이름 = METRICS 키)
+export const LANDING_EVENTS = ["nf_submit", "trial_step3_activate_gtm"];
+
 // GA4 에서 실제로 받아오는 지표 (최대 10개)
-export const RAW = ["screenPageViews", "activeUsers", "sessions", "engagementRate", "bounceRate",
-  "userEngagementDuration", "keyEvents", "sessionKeyEventRate"];
-export const RATES = ["engagementRate", "bounceRate", "sessionKeyEventRate"];
+//   PAGE_RAW: 페이지 경로(pagePath) 기준으로 받는 값, 뒤에 LANDING_EVENTS 가 붙음
+export const PAGE_RAW = ["screenPageViews", "activeUsers", "sessions", "engagementRate", "bounceRate", "userEngagementDuration"];
+export const RAW = [...PAGE_RAW, ...LANDING_EVENTS];
+export const RATES = ["engagementRate", "bounceRate"];
 
 export const LOOKBACK_DAYS = 570;   // 6개월 + 전년 같은 6개월까지
 export const DATA_LAG_DAYS = 2;     // GA4 데이터 확정 지연 → 2일 전까지
