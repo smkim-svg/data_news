@@ -114,7 +114,7 @@
   .tile[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
   .tile-main:focus-visible, .ch tbody tr:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .tile .k { color: var(--muted); font-size: 12px; }
-  .tile .hint { font-size: 10px; background: var(--badge); border-radius: 4px; padding: 0 4px; margin-left: 2px; }
+  .tile .hint { white-space: nowrap; display: inline-block; font-size: 10px; background: var(--badge); border-radius: 4px; padding: 0 4px; margin-left: 2px; }
   .tile .v { font-size: 22px; font-weight: 650; margin: 2px 0 4px; font-variant-numeric: tabular-nums; }
   .tile .ba { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; margin-left: 6px; }
   .delta { display: inline-block; padding: 1px 7px; border-radius: 6px; font-weight: 600; font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -147,6 +147,9 @@
   .loading { color: var(--muted); font-size: 13px; padding: 24px 0; display: flex; align-items: center; gap: 10px; }
   .spin { width: 14px; height: 14px; border: 2px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; display: inline-block; }
   @keyframes spin { to { transform: rotate(360deg); } }
+  .site-group { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 4px; }
+  .site-group .item .d { font-family: inherit; }
+  .seg button[disabled] { opacity: .4; cursor: not-allowed; }
   .item .rc { font-size: 10px; color: var(--muted); background: var(--badge); border-radius: 4px; padding: 0 4px; margin-left: 4px; font-weight: 500; vertical-align: 1px; }
   dialog#editor { border: 1px solid var(--line); border-radius: 14px; padding: 0; width: min(560px, calc(100vw - 32px)); background: var(--surface); color: var(--text); }
   dialog#editor::backdrop { background: rgba(0,0,0,.35); }
@@ -320,7 +323,8 @@ const ymd = (iso) => `${iso.slice(2, 4)}.${iso.slice(5, 7)}.${iso.slice(8, 10)}`
 const dow = (iso) => WEEK[new Date(iso + "T00:00:00Z").getUTCDay()];
 const longDate = (iso) => `${iso.slice(0, 4)}년 ${+iso.slice(5, 7)}월 ${+iso.slice(8, 10)}일 (${dow(iso)})`;
 const esc = (t) => String(t).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-const pathText = (r) => (r.paths && r.paths.length ? r.paths.join(", ") + (r.match === "prefix" ? " (하위 경로 포함)" : "") : "사이트 전체");
+const pathText = (r) => (r.site ? "모든 페이지" : r.paths && r.paths.length ? r.paths.join(", ") + (r.match === "prefix" ? " (하위 경로 포함)" : "") : "사이트 전체");
+const allPages = (prod) => [...prod.pages, prod.site].filter(Boolean);   // 등록 페이지 + 사이트 전체
 const mondayOf = (iso) => addDays(iso, -((new Date(iso + "T00:00:00Z").getUTCDay() + 6) % 7));
 const monthStart = (iso, back = 0) => { const d = new Date(iso.slice(0, 7) + "-01T00:00:00Z"); d.setUTCMonth(d.getUTCMonth() - back); return d.toISOString().slice(0, 10); };
 const monthEnd = (iso) => addDays(monthStart(iso, -1), -1);
@@ -387,7 +391,7 @@ const groupCache = new Map();
 function channelGroups(product) {
   if (groupCache.has(product.id)) return groupCache.get(product.id);
   const tot = {};
-  product.pages.forEach((pg) => Object.entries(pg.channels || {}).forEach(([ch, rows]) =>
+  allPages(product).forEach((pg) => Object.entries(pg.channels || {}).forEach(([ch, rows]) =>
     rows.forEach((r) => { if (r) tot[ch] = (tot[ch] || 0) + r[IDX.sessions - 1]; })));
   const order = Object.keys(tot).sort((a, b) => tot[b] - tot[a]);
   const top = order.length > 8 ? order.slice(0, 7) : order, rest = order.slice(top.length);
@@ -447,7 +451,7 @@ function blocks(unit) {
   return out.map((b) => ({ ...b, partial: b.end < b.fullEnd, days: diffDays(b.start, b.end) + 1 }));
 }
 /** 배포 후~현재: 고른 배포일 (기본은 가장 최근 배포) */
-const sinceStart = () => (SEL.dates.includes(PERIOD.start) ? PERIOD.start : SEL.date);
+const sinceStart = () => (SEL.dates.includes(PERIOD.start) ? PERIOD.start : SEL.date || DATA.dataThrough);
 function currentBlock() {
   if (!PERIOD.unit || PERIOD.unit === "since") return null;
   const list = blocks(PERIOD.unit), picked = list.find((b) => b.start === PERIOD.start);
@@ -558,7 +562,7 @@ function renderTabs() {
 }
 function selectProduct(id, pageKey) {
   P = DATA.products.find((p) => p.id === id) || DATA.products[0];
-  SEL = P.pages.find((r) => r.key === pageKey) || P.pages[0] || null;
+  SEL = allPages(P).find((r) => r.key === pageKey) || P.pages[0] || P.site || null;
   ON = null; renderTabs(); renderAll();
   loadProduct(P);
 }
@@ -584,7 +588,15 @@ function applyConfig(cfg) {
     prod.pages.push({ ...pg, key: pg.id, date: dates.at(-1), dates,
       ...(same ? { daily: prev.daily, channels: prev.channels, channelGroup: prev.channelGroup, error: prev.error } : {}) });
   }
-  DATA.products.forEach((p) => p.pages.sort((a, b) => b.date.localeCompare(a.date) || a.name.localeCompare(b.name)));
+  DATA.products.forEach((p) => {
+    p.pages.sort((a, b) => b.date.localeCompare(a.date) || a.name.localeCompare(b.name));
+    // 제품 사이트 전체: 경로 필터 없이, 그 제품 모든 페이지의 배포일을 함께 표시
+    const dates = [...new Set(p.pages.flatMap((pg) => pg.dates))].sort();
+    const key = "__site:" + p.id, prev = old.get(key);
+    p.site = { key, id: key, product: p.id, name: "사이트 전체", site: true, paths: [], urls: [], match: "exact",
+      releases: dates.map((date) => ({ date })), dates, date: dates.at(-1) || null,
+      ...(prev && prev.dates[0] === dates[0] ? { daily: prev.daily, channels: prev.channels, channelGroup: prev.channelGroup, error: prev.error } : {}) };
+  });
   groupCache.clear(); seriesCache.clear();
   $("demo").hidden = !cfg.demo;
   $("meta").textContent = `${longDate(cfg.dataThrough)}까지 데이터` + (cfg.storage === "memory" ? " · ⚠ 저장소 미연결(추가한 페이지가 유지되지 않아요)" : "");
@@ -605,38 +617,52 @@ function loadPage(pg, refresh) {
   return job;
 }
 async function loadProduct(prod, refreshKey) {
-  const jobs = prod.pages.map((pg) => loadPage(pg, pg.key === refreshKey));
+  const jobs = allPages(prod).map((pg) => loadPage(pg, pg.key === refreshKey));
   if (!jobs.length) return;
   // 하나 끝날 때마다 화면 갱신 (선택한 페이지가 먼저 보이도록)
   jobs.forEach((j) => j.then(() => { if (P === prod) { groupCache.delete(prod.id); renderList(); if (SEL && !SEL.loading) renderDetail(); } }));
   await Promise.all(jobs);
 }
 const ready = (pg) => pg && pg.daily && !pg.loading;
-function renderAll() { renderList(); renderDetail(); writeHash(); }
+/** 배포일이 없는 화면에서 "배포 후~현재"가 선택돼 있으면 1주로 */
+function fixPeriod() { if (PERIOD.unit === "since" && SEL && !SEL.dates.length) PERIOD = { unit: "w1", start: null }; }
+function renderAll() { fixPeriod(); renderList(); renderDetail(); writeHash(); }
 
 // ---------- 왼쪽: 배포일별 페이지 목록 (가장 최근 배포일 기준으로 묶음)
+function listBadge(r) {
+  if (r.loading || (!r.daily && !r.error)) return '<span class="spin"></span>';
+  if (r.error) return '<span class="delta down">오류</span>';
+  const keep = SEL; SEL = r;
+  const c = compare(r.daily, PRIMARY, range(), null, "avg");
+  SEL = keep;
+  return `${deltaHtml(c, PRIMARY)}<small>${fmt(c.cur, "int")}명/일</small>`;
+}
 function renderList() {
   $("list-count").textContent = `활성 사용자 · ${MODE === "yoy" ? "전년 대비" : "이전 대비"}`;
+  const site = P.site ? `
+    <li class="group site-group"><div class="gh">${esc(P.name)} 전체</div><ul>
+      <li><button class="item" data-key="${esc(P.site.key)}" aria-current="${SEL && SEL.key === P.site.key}">
+        <span class="t">📊 사이트 전체</span><span class="d">모든 페이지${P.site.dates.length ? ` · 배포일 ${P.site.dates.length}개 표시` : ""}</span>
+        <span class="m">${listBadge(P.site)}</span></button></li></ul></li>` : "";
   if (!P.pages.length) {
-    $("list").innerHTML = `<li class="empty">아직 등록된 페이지가 없어요.<br><br>위의 <b>+ 페이지 추가</b>로 ${esc(P.name)} 페이지와 배포일을 넣으면 바로 GA4에서 불러와요.</li>`;
-    return;
+    $("list").innerHTML = `<li class="empty">아직 등록된 페이지가 없어요.<br><br>위의 <b>+ 페이지 추가</b>로 ${esc(P.name)} 페이지와 배포일을 넣으면 바로 GA4에서 불러와요.</li>${site}`;
+    bindList(); return;
   }
   const groups = [];
   P.pages.forEach((r) => { const g = groups.at(-1); if (g && g.date === r.date) g.items.push(r); else groups.push({ date: r.date, items: [r] }); });
   const keepSel = SEL;
   $("list").innerHTML = groups.map((g) => `
     <li class="group"><div class="gh">${longDate(g.date)} 배포</div><ul>${g.items.map((r) => {
-      let m;
-      if (r.loading || (!r.daily && !r.error)) m = '<span class="spin"></span>';
-      else if (r.error) m = '<span class="delta down">오류</span>';
-      else { SEL = r; const c = compare(r.daily, PRIMARY, range(), null, "avg"); m = `${deltaHtml(c, PRIMARY)}<small>${fmt(c.cur, "int")}명/일</small>`; }
+      const m = listBadge(r);
       return `<li><button class="item" data-key="${esc(r.key)}" aria-current="${keepSel && r.key === keepSel.key}">
         <span class="t" title="${esc(r.name)}">${esc(r.name)}${r.dates.length > 1 ? `<span class="rc">배포 ${r.dates.length}회</span>` : ""}</span>
         <span class="d" title="${esc(pathText(r))}">${esc(pathText(r))}</span>
-        <span class="m">${m}</span></button></li>`; }).join("")}</ul></li>`).join("");
-  SEL = keepSel;
+        <span class="m">${m}</span></button></li>`; }).join("")}</ul></li>`).join("") + site;
+  bindList();
+}
+function bindList() {
   $("list").querySelectorAll(".item").forEach((b) => b.onclick = () => {
-    SEL = P.pages.find((r) => r.key === b.dataset.key);
+    SEL = allPages(P).find((r) => r.key === b.dataset.key);
     if (PERIOD.unit === "since") PERIOD.start = null;
     $("list").querySelectorAll(".item").forEach((x) => x.setAttribute("aria-current", String(x === b)));
     renderDetail(); writeHash();
@@ -667,12 +693,17 @@ function syncPeriodControls(R) {
 function renderDetail() {
   $("detail").hidden = !SEL;
   if (!SEL) return;
+  fixPeriod();
   const r = SEL, R = range();
-  const since = diffDays(r.date, DATA.dataThrough);
-  $("rel-date").textContent = (r.dates.length > 1 ? `배포 ${r.dates.length}회 · ${r.dates.map(ymd).join(", ")}` : `${longDate(r.date)} 배포`)
+  const since = r.date ? diffDays(r.date, DATA.dataThrough) : -1;
+  $("rel-date").textContent = (!r.dates.length ? "등록된 배포일 없음"
+    : r.dates.length > 1 ? `${r.site ? "이 제품 " : ""}배포 ${r.dates.length}회 · ${r.dates.map(ymd).join(", ")}` : `${longDate(r.date)} 배포`)
     + (since >= 0 ? ` · 최근 배포 후 ${since + 1}일째` : "");
+  $("edit-page").hidden = !!r.site;
+  document.querySelector('#units button[data-unit="since"]').disabled = !r.dates.length;
   $("rel-title").textContent = r.name;
-  $("rel-sub").innerHTML = `${esc(P.name)} · <code class="path">${esc(pathText(r))}</code>` + (r.note ? ` · ${esc(r.note)}` : "");
+  $("rel-sub").innerHTML = r.site ? `${esc(P.name)} 사이트의 모든 페이지 · 차트의 점선은 이 제품에 등록된 배포일이에요`
+    : `${esc(P.name)} · <code class="path">${esc(pathText(r))}</code>` + (r.note ? ` · ${esc(r.note)}` : "");
   const link = (r.urls || []).find((u) => /^https?:\/\//.test(u));
   $("rel-link").hidden = !link; if (link) $("rel-link").href = link;
   syncPeriodControls(R);

@@ -57,3 +57,21 @@ export function validatePage(input, cfg) {
 }
 
 export const newId = () => crypto.randomBytes(6).toString("base64url");
+
+// 제품 "사이트 전체" 가상 페이지: id = "__site:제품ID", 경로 필터 없음, 배포일 = 그 제품 모든 페이지의 배포일
+export const SITE_PREFIX = "__site:";
+export function sitePage(cfg, productId) {
+  const dates = [...new Set(cfg.pages.filter((p) => p.product === productId).flatMap((p) => p.releases.map((r) => r.date)))].sort();
+  return { id: SITE_PREFIX + productId, product: productId, name: "사이트 전체", urls: [], paths: [], match: "exact",
+    releases: dates.map((date) => ({ date })), site: true };
+}
+/** id 로 페이지 찾기 (사이트 전체 포함) → { page(경로 포함), product } 또는 null */
+export function resolvePage(cfg, id) {
+  if (String(id).startsWith(SITE_PREFIX)) {
+    const product = cfg.products.find((p) => p.id === id.slice(SITE_PREFIX.length));
+    return product ? { page: sitePage(cfg, product.id), product } : null;
+  }
+  const raw = cfg.pages.find((p) => p.id === id);
+  if (!raw) return null;
+  return { page: withPaths(raw), product: cfg.products.find((p) => p.id === raw.product) };
+}

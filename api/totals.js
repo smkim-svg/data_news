@@ -2,7 +2,7 @@
 //   선택 기간·비교 기간의 "순 사용자 수"(중복 제거)를 GA4 에서 바로 조회 — 전체 + 채널별
 //   (조회수·세션 같은 합계 지표는 일별 값을 더하면 정확해서 화면에서 계산)
 import crypto from "node:crypto";
-import { loadConfig, withPaths } from "./_lib/config.js";
+import { loadConfig, resolvePage } from "./_lib/config.js";
 import { fetchRangeUsers } from "./_lib/ga4.js";
 import { getJSON, setJSON } from "./_lib/store.js";
 import { isIsoDate, dataThrough } from "./_lib/metrics.js";
@@ -14,9 +14,9 @@ export default async function handler(req, res) {
   try {
     if (![...ranges.cur, ...ranges.cmp].every(isIsoDate)) return send(res, 400, { error: "날짜 형식 오류" });
     const cfg = await loadConfig();
-    const raw = cfg.pages.find((p) => p.id === id);
-    if (!raw) return send(res, 404, { error: "페이지를 찾을 수 없어요." });
-    const page = withPaths(raw), product = cfg.products.find((p) => p.id === page.product);
+    const found = resolvePage(cfg, id);
+    if (!found) return send(res, 404, { error: "페이지를 찾을 수 없어요." });
+    const { page, product } = found;
     const sig = crypto.createHash("sha1").update(JSON.stringify([product.propertyId, page.paths, page.match, ranges, dataThrough()])).digest("hex").slice(0, 12);
     const key = `tot:${id}:${sig}`;
     const hit = await getJSON(key);
