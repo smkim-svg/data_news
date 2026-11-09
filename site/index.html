@@ -189,6 +189,36 @@
   .bar { display: inline-block; width: 48px; height: 6px; background: var(--badge); border-radius: 3px; margin-right: 8px; vertical-align: 1px; overflow: hidden; }
   .bar i { display: block; height: 100%; background: var(--accent); border-radius: 3px; }
   #chart-sub a { color: var(--accent); }
+  .ai-card[hidden] { display: none; }
+  .ai-card { scroll-margin-top: 130px; }
+  #ai-open .count { font-weight: 600; color: var(--accent); margin-left: 2px; }
+  .ai-now { margin-top: 10px; font-size: 13px; color: var(--muted); }
+  .ai-now b { color: var(--text); }
+  .ai-step { margin-top: 12px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; display: grid; gap: 8px; }
+  .ai-step-h { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+  .ai-num { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: var(--accent); color: #fff; font-size: 11px; font-weight: 700; }
+  .ai-ask { display: flex; gap: 8px; }
+  .ai-ask input, #ai-paste { flex: 1; min-width: 0; font: inherit; font-size: 13px; color: var(--text); background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+  #ai-paste { width: 100%; resize: vertical; box-sizing: border-box; }
+  .ai-save-row { display: flex; align-items: center; gap: 8px; }
+  .ai-save-row .spacer { flex: 1; }
+  .ai-list-head h3 { font-size: 14px; margin: 20px 0 8px; }
+  .ai-item { border: 1px solid var(--line); border-radius: 10px; margin-top: 8px; }
+  .ai-item summary { cursor: pointer; padding: 10px 12px; display: flex; flex-wrap: wrap; gap: 2px 10px; align-items: baseline; }
+  .ai-item summary .t { font-weight: 600; font-size: 13px; }
+  .ai-item[open] summary { border-bottom: 1px solid var(--line); }
+  .ai-item .ai-q, .ai-item .ai-out, .ai-item .ai-actions { padding: 0 14px; }
+  .ai-item .ai-q { margin-top: 10px; }
+  .ai-item .ai-actions { margin: 10px 0 12px; font-size: 12px; }
+  .ai-match { background: var(--accent-soft); color: var(--accent); }
+  .ai-out { margin-top: 10px; font-size: 14px; line-height: 1.7; overflow-wrap: anywhere; }
+  .ai-out h3, .ai-out h4 { font-size: 14px; margin: 16px 0 6px; }
+  .ai-out h3:first-child, .ai-out h4:first-child { margin-top: 0; }
+  .ai-out ul, .ai-out ol { margin: 4px 0; padding-left: 20px; }
+  .ai-out li { margin: 2px 0; }
+  .ai-out p { margin: 6px 0; }
+  .ai-out code { font-size: 12px; background: var(--badge); border-radius: 4px; padding: 0 4px; }
+  @media (max-width: 560px) { .ai-ask { flex-direction: column; } }
 </style>
 </head>
 <body>
@@ -223,6 +253,7 @@
           <a id="rel-link" target="_blank" rel="noopener" hidden>페이지 열기 ↗</a>
           <button class="btn" id="reload-page" title="GA4에서 다시 불러오기">↻ 다시 불러오기</button>
           <button class="btn" id="edit-page">편집 · 배포일 추가</button>
+          <button class="btn" id="ai-open" title="지금 보고 있는 숫자를 AI가 해석해 줘요">✨ AI 분석</button>
         </div>
       </div>
 
@@ -251,6 +282,31 @@
       <div id="kpi-loading" class="loading" hidden><span class="spin"></span>GA4에서 데이터를 불러오는 중이에요…</div>
       <div class="kpis" id="kpis"></div>
       <div class="note"><span id="kpi-note"></span> <button class="linkbtn" id="fold-all"></button></div>
+    </section>
+
+    <section class="card ai-card" id="ai-card" hidden aria-labelledby="ai-title">
+      <div class="row">
+        <div>
+          <h2 id="ai-title">✨ AI 분석</h2>
+          <div class="sub">Claude 에서 분석하고, 결과를 붙여넣어 저장해요. 저장한 분석은 팀원 모두 볼 수 있어요.</div>
+        </div>
+        <button class="btn" id="ai-close" aria-label="AI 분석 닫기">닫기</button>
+      </div>
+      <div class="ai-now">지금 화면: <b id="ai-now"></b></div>
+      <div class="ai-step">
+        <div class="ai-step-h"><span class="ai-num">1</span><b>복사해서 Claude 에 붙여넣기</b></div>
+        <div class="ai-ask">
+          <input id="ai-q" maxlength="500" placeholder="궁금한 점 (선택) 예: 배포 후 nf_submit 이 왜 줄었을까?" aria-label="Claude 에게 물어볼 내용">
+          <button type="button" class="btn btn-primary" id="ai-copy">Claude용 복사</button>
+        </div>
+        <div class="sub">지금 화면의 숫자와 분석 지침이 함께 복사돼요. <a href="https://claude.ai/new" target="_blank" rel="noopener">Claude 열기 ↗</a> 에 붙여넣고 보내세요.</div>
+      </div>
+      <div class="ai-step">
+        <div class="ai-step-h"><span class="ai-num">2</span><b>Claude 답을 붙여넣고 저장</b></div>
+        <textarea id="ai-paste" rows="6" placeholder="Claude 답 아래의 복사 버튼을 누른 뒤 여기에 붙여넣으세요" aria-label="분석 결과 붙여넣기"></textarea>
+        <div class="ai-save-row"><span class="error" id="ai-err" hidden></span><span class="spacer"></span><button type="button" class="btn btn-primary" id="ai-save">저장</button></div>
+      </div>
+      <div id="ai-list"></div>
     </section>
 
     <section class="card" id="chart-card">
@@ -707,6 +763,7 @@ function syncPeriodControls(R) {
 }
 
 function renderDetail() {
+  queueMicrotask(renderAi);   // AI 분석 패널: 기간·페이지가 바뀌면 안내 갱신
   $("detail").hidden = !SEL;
   if (!SEL) return;
   fixPeriod();
@@ -931,7 +988,7 @@ function setCustom() {
 // ---------- 시작
 fetch("/auth/me", { cache: "no-store" })
   .then((r) => (r.ok ? r.json() : null))
-  .then((u) => { if (u) $("user").innerHTML = `${esc(u.email)} · <a href="/auth/logout" style="color:inherit">로그아웃</a>`; })
+  .then((u) => { if (u) $("user").dataset.email = u.email; if (u) $("user").innerHTML = `${esc(u.email)} · <a href="/auth/logout" style="color:inherit">로그아웃</a>`; })
   .catch(() => {});
 
 // ---------- 페이지 추가·편집
@@ -1006,6 +1063,175 @@ async function deletePage() {
   b.disabled = false;
 }
 
+// ---------- AI 분석 (Claude 에서 분석 → 결과를 붙여넣어 페이지별로 저장, 팀원이 함께 봄)
+const NOTES = new Map();   // 페이지 → { items, loading, error }
+let AI_OPEN = new Set();   // 펼친 저장 결과 id
+const AI_GUIDE = `당신은 Google Analytics 4(GA4) 데이터를 읽어 주는 시니어 웹 분석가입니다.
+읽는 사람은 UX 디자이너·기획자이고, 웹 페이지를 개선해 배포한 뒤 효과를 확인하려고 합니다.
+아래 JSON 은 "UX 성과 모니터링 대시보드" 화면의 숫자입니다. 이 숫자만 근거로 한국어 리포트를 써 주세요.
+
+[출력 형식] 마크다운, 아래 순서 그대로. 리포트 본문만 쓰고 앞뒤 인사말·설명은 빼 주세요. 표는 쓰지 말고 목록으로.
+## 한 줄 결론
+- 질문의 답을 방향과 크기를 넣어 한 문장으로 (질문이 없으면 이 기간 가장 중요한 변화).
+## 숫자로 보면
+- 핵심 지표 3~5개. 항상 "현재 vs 비교 (차이, 변화율)"로 절대값과 비율을 함께.
+- site 값이 있으면 "사이트 전체는 ○○%"를 함께 적어, 이 페이지만의 변화인지 사이트 전체 흐름인지 구분.
+## 무엇 때문일까 (추정)
+- 변화를 만든 채널·날짜를 숫자로 짚기. 예: "자연 검색 세션 −120 (전체 감소분의 70%)".
+- trend(일별 추이)에서 배포일 전후로 계단처럼 바뀌었는지, 하루만 튀었는지, 서서히 움직였는지 구분.
+- 근거가 약하면 "추정"이라고 분명히.
+## 다음에 해볼 것
+- 1~3개. 구체적이고 다음 기간에 숫자로 확인할 수 있는 행동.
+## 주의할 점
+- 이 해석을 흔들 수 있는 것만 2~4개.
+
+[규칙]
+- 주어진 숫자에 없는 값은 만들지 말 것. 계산은 주어진 숫자로만, 반올림해서.
+- 짧은 문장, 해요체. 전체 1,500자 안팎. 지표 이름은 label 그대로.
+- 작은 숫자(하루 몇 건, 비교 값 30 미만)의 변화율은 "표본이 작아 판단 보류"처럼 조심스럽게.
+- GA4 에는 통계적 유의성 검정이 없음. 한 기간 변화는 "방향"으로만 말하고 여러 기간 이어지는지 확인하라고 안내.
+- lowerIsBetter=true 인 지표(이탈률)는 낮을수록 좋음. state "short" = 비교 기간 데이터 부족, "new" = 비교 기간엔 방문이 없던 신규 페이지.
+- period.partial=true 면 진행 중인 기간이라 요일 구성이 다를 수 있음(B2B 사이트는 주말 방문이 크게 줄어듦).
+- period.mode: prev = 바로 이전 같은 길이 기간, yoy = 전년 같은 기간, since = 배포 전 같은 일수.
+- 지표 범위 (필요할 때만 언급):
+  · 활성 사용자는 사람이 아니라 기기·브라우저 기준이라 실제보다 많게 잡힐 수 있음.
+  · 참여율·이탈률·세션은 "이 페이지를 본 세션" 기준. GA4 에서 참여율·이탈률은 원래 세션 단위라 페이지 단위로는 참고용.
+  · nf_submit, trial_step3_activate_gtm 은 이 페이지로 처음 들어온(방문 페이지) 세션에서 생긴 횟수.
+  · 로그인 버튼 클릭은 이 페이지에서 일어난 cta_id_click 중 지정 Label.
+  · 데이터는 2일 전까지(확정 지연). 쿠키 동의 거부·광고 차단 사용자는 빠지므로 절대 수치는 하한값.
+- 질문이 있으면 그 답을 최우선으로. 데이터로 답할 수 없으면 그렇다고 말하고 확인 방법을 제안.`;
+// 리포트 구조·주의사항: MrBridgeHQ/ga4-analyst-claude analysis-playbook 참고 (MIT, Copyright (c) 2026 Mr Bridge)
+
+const rnd = (v, kind) => v == null || Number.isNaN(v) ? null : kind === "pct" ? +(v * 100).toFixed(1) : Math.abs(v) >= 100 ? Math.round(v) : +v.toFixed(2);
+function aiCmp(rows, k, R, series) {
+  const m = DATA.metrics[k], c = compare(rows, k, R, series);
+  return { cur: rnd(c.cur, m.fmt), cmp: rnd(c.prev, m.fmt), changePct: c.delta == null ? null : +c.delta.toFixed(1), ...(c.state !== "ok" ? { state: c.state } : {}) };
+}
+function aiContext() {
+  const r = SEL, R = range(), groups = channelGroups(P), keys = Object.keys(DATA.metrics);
+  const metrics = keys.map((k) => ({ key: k, label: metricLabel(k), unit: DATA.metrics[k].fmt === "pct" ? "%" : DATA.metrics[k].fmt === "sec" ? "초" : "",
+    ...(hintOf(k) ? { scope: hintOf(k) } : {}), ...(DATA.metrics[k].lowerIsBetter ? { lowerIsBetter: true } : {}), ...aiCmp(r.daily, k, R, "__all") }));
+  const CH_KEYS = ["sessions", "activeUsers", "engagementRate", "nf_submit", "trial_step3_activate_gtm", "login_click"].filter((k) => DATA.metrics[k]);
+  const channels = groups.map((g) => ({ channel: g.name, ...(CH_KO[g.key] ? { ko: CH_KO[g.key] } : {}),
+    ...Object.fromEntries(CH_KEYS.map((k) => { const c = aiCmp(seriesRows(r, g.key), k, R, g.key); return [k, [c.cur, c.cmp, c.changePct]]; })) }));
+  // 일별 추이: 비교 기간 시작 ~ 선택 기간 끝 (120일 넘으면 주별 일평균)
+  const start = minIso(R.pFrom, R.from), DK = ["activeUsers", "screenPageViews", "sessions", "engagementRate", "bounceRate", ...keys.filter((k) => DATA.metrics[k].fmt === "cnt")];
+  let rows = rowsIn(r.daily, start, R.to), unit = "day";
+  const cell = (rs, k) => rnd(rs.length === 1 ? dayValue(rs[0], k) : aggregate(rs, k, "avg"), DATA.metrics[k].fmt);
+  if (rows.length > 120) {
+    const wk = new Map(); rows.forEach((x) => { const w = mondayOf(x[0]); if (!wk.has(w)) wk.set(w, []); wk.get(w).push(x); });
+    rows = [...wk.entries()].map(([w, rs]) => [w, ...DK.map((k) => cell(rs, k))]); unit = "week (일평균)";
+  } else rows = rows.map((x) => [x[0], ...DK.map((k) => cell([x], k))]);
+  const site = !r.site && ready(P.site) ? Object.fromEntries(CH_KEYS.map((k) => { const c = aiCmp(P.site.daily, k, R, null); return [k, [c.cur, c.cmp, c.changePct]]; })) : null;
+  return {
+    product: P.name,
+    page: { name: r.name, siteWide: !!r.site, paths: r.paths, match: r.match, note: r.note || undefined,
+      releases: (r.releases || []).map((x) => ({ date: x.date, ...(x.note ? { note: x.note } : {}) })) },
+    period: { label: R.label, from: R.from, to: R.to, days: R.n, compareLabel: R.cmpName, compareFrom: R.pFrom, compareTo: R.pTo,
+      mode: PERIOD.unit === "since" && MODE !== "yoy" ? "since" : MODE, numbers: AGG === "sum" ? "기간 합계" : "일평균", partial: / 진행 중/.test(R.label), dataThrough: DATA.dataThrough },
+    metrics, channelGroup: r.channelGroup || undefined,
+    channels: { columns: "각 지표 [현재, 비교, 변화율%]", rows: channels },
+    ...(site ? { site: { note: "같은 기간 이 제품 사이트 전체 [현재, 비교, 변화율%]", ...site } } : {}),
+    trend: { unit, columns: ["date", ...DK], rows },
+  };
+}
+function aiPrompt() {
+  const q = $("ai-q").value.trim();
+  return `${AI_GUIDE}\n\n[질문]\n${q || "(없음 — 이 기간의 핵심 변화를 해석해 주세요)"}\n\n[대시보드 데이터]\n\`\`\`json\n${JSON.stringify(aiContext())}\n\`\`\``;
+}
+async function copyText(text) {
+  try { await navigator.clipboard.writeText(text); return true; } catch {}
+  const t = document.createElement("textarea"); t.value = text; t.style.cssText = "position:fixed;opacity:0"; document.body.append(t); t.select();
+  let ok = false; try { ok = document.execCommand("copy"); } catch {} t.remove(); return ok;
+}
+function mdToHtml(md) {
+  const inline = (t) => esc(t).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/`([^`]+)`/g, "<code>$1</code>").replace(/(^|\s)_([^_]+)_(?=\s|$)/g, "$1<i>$2</i>");
+  const out = []; let list = null;
+  const close = () => { if (list) { out.push(`</${list}>`); list = null; } };
+  for (const raw of String(md).split(/\r?\n/)) {
+    const line = raw.trimEnd();
+    let m;
+    if (!line.trim() || /^```/.test(line) || /^-{3,}$/.test(line.trim())) { close(); continue; }
+    if ((m = line.match(/^#{1,2}\s+(.*)/))) { close(); out.push(`<h3>${inline(m[1])}</h3>`); }
+    else if ((m = line.match(/^#{3,6}\s+(.*)/))) { close(); out.push(`<h4>${inline(m[1])}</h4>`); }
+    else if ((m = line.match(/^\s*[-*•]\s+(.*)/))) { if (list !== "ul") { close(); out.push("<ul>"); list = "ul"; } out.push(`<li>${inline(m[1])}</li>`); }
+    else if ((m = line.match(/^\s*\d+[.)]\s+(.*)/))) { if (list !== "ol") { close(); out.push("<ol>"); list = "ol"; } out.push(`<li>${inline(m[1])}</li>`); }
+    else { close(); out.push(`<p>${inline(line)}</p>`); }
+  }
+  close(); return out.join("");
+}
+function loadNotes(key, force) {
+  const n = NOTES.get(key);
+  if (!force && n && (n.items || n.loading)) return;
+  NOTES.set(key, { ...(n || {}), loading: true });
+  api(`/api/analyze?page=${encodeURIComponent(key)}`)
+    .then((d) => NOTES.set(key, { items: d.items || [] }))
+    .catch((e) => NOTES.set(key, { items: n?.items || [], error: e.message }))
+    .finally(() => { if (SEL && SEL.key === key) renderAi(); });
+}
+const sameRange = (p, R) => p.from === R.from && p.to === R.to && p.pFrom === R.pFrom && p.pTo === R.pTo;
+const stamp = (iso) => { const t = new Date(iso); return `${t.getFullYear() % 100}.${String(t.getMonth() + 1).padStart(2, "0")}.${String(t.getDate()).padStart(2, "0")} ${String(t.getHours()).padStart(2, "0")}:${String(t.getMinutes()).padStart(2, "0")}`; };
+function renderAi() {
+  if (!SEL) return;
+  loadNotes(SEL.key);
+  const n = NOTES.get(SEL.key) || {}, items = n.items || [];
+  $("ai-open").innerHTML = `✨ AI 분석${items.length ? ` <span class="count">${items.length}</span>` : ""}`;
+  if ($("ai-card").hidden) return;
+  const can = ready(SEL) && !SEL.error, R = can ? range() : null;
+  $("ai-copy").disabled = !can; $("ai-save").disabled = !can;
+  $("ai-now").textContent = can ? `${R.label} (${ymd(R.from)}~${ymd(R.to)}) vs ${R.cmpName}` : "데이터를 다 불러온 뒤에 쓸 수 있어요";
+  if (n.loading && !n.items) { $("ai-list").innerHTML = `<div class="loading"><span class="spin"></span>저장된 분석을 불러오는 중…</div>`; return; }
+  const me = $("user").dataset.email || "";
+  const head = `<div class="ai-list-head"><h3>저장된 분석 <span class="sub">${items.length}개 · 팀원 모두 볼 수 있어요</span></h3></div>`;
+  if (!items.length) { $("ai-list").innerHTML = head + `<div class="sub">${n.error ? `<span class="error">${esc(n.error)}</span>` : "아직 저장된 분석이 없어요. 위 1 → 2 순서로 첫 분석을 남겨 보세요."}</div>`; return; }
+  const firstMatch = R && items.find((x) => sameRange(x.period, R));
+  $("ai-list").innerHTML = head + items.map((x) => {
+    const match = R && sameRange(x.period, R);
+    const open = AI_OPEN.has(x.id) || (!AI_OPEN.size && x === (firstMatch || items[0]));
+    const who = x.by ? x.by.split("@")[0] : "알 수 없음";
+    return `<details class="ai-item" data-id="${x.id}"${open ? " open" : ""}>
+      <summary><span class="t">${esc(x.period.label || "기간")}${match ? ' <span class="badge ai-match">지금 보는 기간</span>' : ""}</span>
+        <span class="sub">${ymd(x.period.from)}~${ymd(x.period.to)} vs ${esc(x.period.cmpName || "비교")}${x.period.agg === "sum" ? " · 기간 합계" : ""} · ${esc(who)} · ${stamp(x.at)}</span></summary>
+      ${x.question ? `<div class="ai-q sub">질문: ${esc(x.question)}</div>` : ""}
+      <div class="ai-out">${mdToHtml(x.text)}</div>
+      <div class="ai-actions"><button class="linkbtn" data-act="copy">복사</button>${!x.by || x.by === me ? ` · <button class="linkbtn btn-danger" data-act="del">삭제</button>` : ""}${!match && x.period.from ? ` · <button class="linkbtn" data-act="go">이 기간으로 보기</button>` : ""}</div>
+    </details>`;
+  }).join("");
+  $("ai-list").querySelectorAll(".ai-item").forEach((d) => {
+    const x = items.find((i) => i.id === d.dataset.id);
+    d.addEventListener("toggle", () => { if (d.open) AI_OPEN.add(x.id); else AI_OPEN.delete(x.id); });
+    d.querySelectorAll("[data-act]").forEach((b) => b.onclick = async () => {
+      if (b.dataset.act === "copy") toast((await copyText(x.text)) ? "복사했어요." : "복사하지 못했어요.");
+      if (b.dataset.act === "go") { PERIOD = UNITS[x.period.unit] && x.period.start ? { unit: x.period.unit, start: x.period.start } : { unit: null, from: x.period.from, to: x.period.to }; MODE = x.period.mode; AGG = x.period.agg; AI_OPEN = new Set([x.id]); renderAll(); }
+      if (b.dataset.act === "del") {
+        if (!b.dataset.armed) { b.dataset.armed = "1"; b.textContent = "정말 삭제할까요? 한 번 더"; return; }
+        try { const d2 = await api("/api/analyze", { action: "delete", page: SEL.key, id: x.id }); NOTES.set(SEL.key, { items: d2.items }); toast("삭제했어요."); }
+        catch (e) { toast(e.message); }
+        renderAi();
+      }
+    });
+  });
+}
+async function saveAi() {
+  const text = $("ai-paste").value.trim(), err = $("ai-err");
+  err.hidden = true;
+  if (!text) { err.textContent = "Claude 가 쓴 분석 결과를 붙여넣어 주세요."; err.hidden = false; return; }
+  const R = range(), key = SEL.key;
+  $("ai-save").disabled = true; $("ai-save").textContent = "저장 중…";
+  try {
+    const d = await api("/api/analyze", { action: "add", page: key, question: $("ai-q").value.trim(), text,
+      period: { label: R.label, from: R.from, to: R.to, pFrom: R.pFrom, pTo: R.pTo, cmpName: R.cmpName, mode: MODE, agg: AGG,
+        unit: PERIOD.unit || null, start: PERIOD.unit === "since" ? sinceStart() : currentBlock()?.start || null } });
+    NOTES.set(key, { items: d.items }); AI_OPEN = new Set([d.savedId]);
+    $("ai-paste").value = ""; $("ai-q").value = ""; toast("저장했어요. 팀원도 볼 수 있어요.");
+  } catch (e) { err.textContent = e.message; err.hidden = false; }
+  $("ai-save").textContent = "저장"; renderAi();
+}
+function openAi() {
+  $("ai-card").hidden = false; AI_OPEN = new Set(); renderAi();
+  $("ai-card").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
 // ---------- 시작
 api("/api/config")
   .then((cfg) => {
@@ -1033,6 +1259,10 @@ api("/api/config")
     $("ed-cancel").onclick = () => $("editor").close();
     $("ed-form").onsubmit = saveEditor;
     $("ed-delete").onclick = deletePage;
+    $("ai-open").onclick = openAi;
+    $("ai-close").onclick = () => { $("ai-card").hidden = true; };
+    $("ai-copy").onclick = async () => { if (ready(SEL)) toast((await copyText(aiPrompt())) ? "복사했어요. Claude 대화창에 붙여넣으세요." : "복사하지 못했어요. 다시 눌러 주세요."); };
+    $("ai-save").onclick = saveAi;
     const h = readHash();
     sel.value = METRIC;
     selectProduct(h.product || DATA.products[0].id, h.page);
