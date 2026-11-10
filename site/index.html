@@ -253,7 +253,7 @@
           <a id="rel-link" target="_blank" rel="noopener" hidden>페이지 열기 ↗</a>
           <button class="btn" id="reload-page" title="GA4에서 다시 불러오기">↻ 다시 불러오기</button>
           <button class="btn" id="edit-page">편집 · 배포일 추가</button>
-          <button class="btn" id="ai-open" title="지금 보고 있는 숫자를 AI가 해석해 줘요">✨ AI 분석</button>
+          <button class="btn" id="ai-open" title="Claude 에서 분석한 결과를 페이지·기간별로 모아 두는 곳">📝 분석 노트</button>
         </div>
       </div>
 
@@ -287,10 +287,10 @@
     <section class="card ai-card" id="ai-card" hidden aria-labelledby="ai-title">
       <div class="row">
         <div>
-          <h2 id="ai-title">✨ AI 분석</h2>
+          <h2 id="ai-title">📝 분석 노트</h2>
           <div class="sub">Claude 에서 분석하고, 결과를 붙여넣어 저장해요. 저장한 분석은 팀원 모두 볼 수 있어요.</div>
         </div>
-        <button class="btn" id="ai-close" aria-label="AI 분석 닫기">닫기</button>
+        <button class="btn" id="ai-close" aria-label="분석 노트 닫기">닫기</button>
       </div>
       <div class="ai-now">지금 화면: <b id="ai-now"></b></div>
       <div class="ai-step">
@@ -1175,7 +1175,7 @@ function renderAi() {
   if (!SEL) return;
   loadNotes(SEL.key);
   const n = NOTES.get(SEL.key) || {}, items = n.items || [];
-  $("ai-open").innerHTML = `✨ AI 분석${items.length ? ` <span class="count">${items.length}</span>` : ""}`;
+  $("ai-open").innerHTML = `📝 분석 노트${items.length ? ` <span class="count">${items.length}</span>` : ""}`;
   if ($("ai-card").hidden) return;
   const can = ready(SEL) && !SEL.error, R = can ? range() : null;
   $("ai-copy").disabled = !can; $("ai-save").disabled = !can;
