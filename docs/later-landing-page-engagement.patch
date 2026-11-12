@@ -1,0 +1,185 @@
+From ab210ef47e7b499fbc6761a9baca20df0eccf76f Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?=EA=B9=80=EC=84=B8=EB=AF=BC?= <smkim@rsupport.com>
+Date: Mon, 9 Nov 2026 16:50:44 +0900
+Subject: [PATCH] =?UTF-8?q?=EB=90=98=EB=8F=8C=EB=A6=BC:=20=EC=B0=B8?=
+ =?UTF-8?q?=EC=97=AC=EC=9C=A8=C2=B7=EC=9D=B4=ED=83=88=EB=A5=A0=20=EB=B0=A9?=
+ =?UTF-8?q?=EB=AC=B8=20=ED=8E=98=EC=9D=B4=EC=A7=80=20=EA=B8=B0=EC=A4=80=20?=
+ =?UTF-8?q?=EB=B3=80=EA=B2=BD=20(=EB=82=98=EC=A4=91=EC=97=90=20=EB=8B=A4?=
+ =?UTF-8?q?=EC=8B=9C=20=EA=B2=80=ED=86=A0)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FWWHVRAeBKDJBnJZsk4ett
+---
+ api/_lib/ga4.js     | 54 ++++++++++++++++++++++++++-------------------
+ api/_lib/metrics.js | 18 ++++++++++-----
+ site/index.html     | 10 +++++----
+ 3 files changed, 49 insertions(+), 33 deletions(-)
+
+diff --git a/api/_lib/ga4.js b/api/_lib/ga4.js
+index 653e6b7..ec3dfda 100644
+--- a/api/_lib/ga4.js
++++ b/api/_lib/ga4.js
+@@ -1,7 +1,7 @@
+ // GA4 Data API 를 서비스 계정으로 직접 호출 (외부 라이브러리 없이 Node 기본 기능만 사용)
+ //   필요한 Vercel 환경 변수: GA4_SA_KEY = 서비스 계정 JSON 전체 내용
+ import crypto from "node:crypto";
+-import { RAW, PAGE_RAW, RATES, LANDING_EVENTS, LOOKBACK_DAYS, addDays, dataThrough,
++import { RAW, PAGE_RAW, LP_RAW, LP_API, RATES, RATE_WEIGHT, LANDING_EVENTS, LOOKBACK_DAYS, addDays, dataThrough,
+   CLICK_EVENT, DEFAULT_LOGIN_LABEL, LABEL_DIM_NAME } from "./metrics.js";
+ import { getJSON, setJSON } from "./store.js";
+ 
+@@ -155,28 +155,31 @@ export async function fetchPageData(product, page) {
+       { filter: { fieldName: meta.label, stringFilter: { matchType: "EXACT", value: label } } },
+     ] } } : null;
+     if (!meta.label) warnings.push(`이 속성에서 "${LABEL_DIM_NAME}" 맞춤 측정기준을 찾지 못해 로그인 버튼 클릭은 0으로 보여요.`);
+-    const [t, c, et, ec, ct, cc] = await pool([
+-      () => report(pid, start, end, pf, ["date"]),
++    const lf = page.paths.length ? pageFilter(page.paths, page.match, "landingPage") : undefined;
++    const [t, c, lt, lc, et, ec, ct, cc] = await pool([
++      () => report(pid, start, end, pf, ["date"]),                                    // 페이지 경로 기준
+       () => report(pid, start, end, pf, ["date", dim.api]),
+-      () => report(pid, start, end, ef, ["date", "eventName"], ["eventCount"]),
++      () => report(pid, start, end, lf, ["date"], LP_API),                            // 방문 페이지 기준 참여·이탈
++      () => report(pid, start, end, lf, ["date", dim.api], LP_API),
++      () => report(pid, start, end, ef, ["date", "eventName"], ["eventCount"]),       // 방문 페이지 기준 이벤트
+       () => report(pid, start, end, ef, ["date", dim.api, "eventName"], ["eventCount"]),
+-      () => (cf ? report(pid, start, end, cf, ["date"], ["eventCount"]) : []),
++      () => (cf ? report(pid, start, end, cf, ["date"], ["eventCount"]) : []),       // 로그인 버튼 클릭
+       () => (cf ? report(pid, start, end, cf, ["date", dim.api], ["eventCount"]) : []),
+     ]);
+-    // 페이지 지표 + 방문 페이지 기준 이벤트 수를 RAW 순서로 합침
+-    const evAt = (ev) => PAGE_RAW.length + LANDING_EVENTS.indexOf(ev);
+-    const pad = (v) => [...v, ...RAW.slice(PAGE_RAW.length).map(() => 0)];
+-    const clickAt = RAW.indexOf("login_click");
+-    total = Object.fromEntries(t.map((r) => [r.date, pad(r.vals)]));
+-    for (const r of et) { const i = evAt(r.dims[0]); if (i >= PAGE_RAW.length) (total[r.date] ||= zero.slice())[i] += r.vals[0]; }
+-    byCh = {};
+-    for (const r of c) (byCh[r.dims[0] || "(not set)"] ||= {})[r.date] = pad(r.vals);
+-    for (const r of ec) {
+-      const i = evAt(r.dims[1]); if (i < PAGE_RAW.length) continue;
+-      ((byCh[r.dims[0] || "(not set)"] ||= {})[r.date] ||= zero.slice())[i] += r.vals[0];
+-    }
+-    for (const r of ct) (total[r.date] ||= zero.slice())[clickAt] += r.vals[0];
+-    for (const r of cc) ((byCh[r.dims[0] || "(not set)"] ||= {})[r.date] ||= zero.slice())[clickAt] += r.vals[0];
++    // 여러 조회 결과를 RAW 순서의 한 줄로 합침
++    const at = (name) => RAW.indexOf(name);
++    total = {}; byCh = {};
++    const row = (target, date) => (target[date] ||= zero.slice());
++    const chRow = (ch, date) => row(byCh[ch || "(not set)"] ||= {}, date);
++    const put = (r, names, vals) => names.forEach((n, k) => { r[at(n)] += vals[k]; });
++    for (const r of t) put(row(total, r.date), PAGE_RAW, r.vals);
++    for (const r of c) put(chRow(r.dims[0], r.date), PAGE_RAW, r.vals);
++    for (const r of lt) put(row(total, r.date), LP_RAW, r.vals);
++    for (const r of lc) put(chRow(r.dims[0], r.date), LP_RAW, r.vals);
++    for (const r of et) if (LANDING_EVENTS.includes(r.dims[0])) row(total, r.date)[at(r.dims[0])] += r.vals[0];
++    for (const r of ec) if (LANDING_EVENTS.includes(r.dims[1])) chRow(r.dims[0], r.date)[at(r.dims[1])] += r.vals[0];
++    for (const r of ct) row(total, r.date)[at("login_click")] += r.vals[0];
++    for (const r of cc) chRow(r.dims[0], r.date)[at("login_click")] += r.vals[0];
+   } else {
+     ({ total, byCh } = demoData(dates, page));
+     groupName = "맞춤 채널 그룹 (데모)";
+@@ -241,12 +244,17 @@ function demoData(dates, page) {
+     for (const [ch, share] of Object.entries(CH)) {
+       const q = k * (0.8 + rnd() * 0.4), users = base * share * q, sessions = users * 1.2;
+       const er = Math.min(0.95, (ch === "직접 유입" ? 0.65 : 0.5) * q ** 0.2);
+-      const v = [Math.round(users * 1.6), Math.round(users), Math.round(sessions), er, 1 - er, users * 70 * q ** 0.5,
+-        rnd() < sessions * 0.004 * q ? Math.ceil(rnd() * 2) : 0, rnd() < sessions * 0.002 * q ? 1 : 0, Math.round(sessions * 0.05 * q * rnd())];
++      const o = { screenPageViews: Math.round(users * 1.6), activeUsers: Math.round(users), sessions: Math.round(sessions),
++        userEngagementDuration: users * 70 * q ** 0.5, lp_sessions: Math.round(sessions * 0.55), engagementRate: er, bounceRate: 1 - er,
++        nf_submit: rnd() < sessions * 0.004 * q ? Math.ceil(rnd() * 2) : 0, trial_step3_activate_gtm: rnd() < sessions * 0.002 * q ? 1 : 0,
++        login_click: Math.round(sessions * 0.05 * q * rnd()) };
++      const v = RAW.map((n) => o[n] ?? 0);
+       byCh[ch][d] = v;
+-      RAW.forEach((n, i) => { day[i] += RATES.includes(n) ? v[i] * v[2] : v[i]; });   // v[2] = sessions
++      const w = o[RATE_WEIGHT];
++      RAW.forEach((n, i) => { day[i] += RATES.includes(n) ? v[i] * w : v[i]; });
+     }
+-    RAW.forEach((n, i) => { if (RATES.includes(n)) day[i] = day[2] ? day[i] / day[2] : 0; });
++    const wi = RAW.indexOf(RATE_WEIGHT);
++    RAW.forEach((n, i) => { if (RATES.includes(n)) day[i] = day[wi] ? day[i] / day[wi] : 0; });
+     total[d] = day;
+   }
+   return { total, byCh };
+diff --git a/api/_lib/metrics.js b/api/_lib/metrics.js
+index 4277f4a..02d3798 100644
+--- a/api/_lib/metrics.js
++++ b/api/_lib/metrics.js
+@@ -7,8 +7,9 @@ export const METRICS = {
+   activeUsers: { label: "활성 사용자 (일평균)", agg: "avg", fmt: "int" },
+   screenPageViews: { label: "페이지 조회수 (일평균)", agg: "avg", fmt: "int" },
+   sessions: { label: "세션 (일평균)", agg: "avg", fmt: "int" },
+-  engagementRate: { label: "참여율", agg: "weighted", fmt: "pct" },
+-  bounceRate: { label: "이탈률", agg: "weighted", fmt: "pct", lowerIsBetter: true },
++  // 참여율·이탈률은 세션 단위 값이라 "이 페이지로 들어온 세션(방문 페이지)" 기준으로, 그 세션 수로 가중 평균
++  engagementRate: { label: "참여율", agg: "weighted", weight: "lp_sessions", fmt: "pct", hint: "방문 페이지 기준" },
++  bounceRate: { label: "이탈률", agg: "weighted", weight: "lp_sessions", fmt: "pct", lowerIsBetter: true, hint: "방문 페이지 기준" },
+   avgEngagementTime: { label: "사용자당 참여 시간", agg: "ratio", num: "userEngagementDuration", den: "activeUsers", fmt: "sec" },
+   // 주요 이벤트: 이 페이지가 "방문 페이지(Landing page)"인 세션에서 발생한 횟수
+   nf_submit: { label: "nf_submit (일평균)", agg: "avg", fmt: "cnt", hint: "방문 페이지 기준" },
+@@ -21,15 +22,20 @@ export const METRICS = {
+ export const LANDING_EVENTS = ["nf_submit", "trial_step3_activate_gtm"];
+ 
+ // GA4 에서 실제로 받아오는 지표 (최대 10개)
+-//   PAGE_RAW: 페이지 경로(pagePath) 기준으로 받는 값, 뒤에 LANDING_EVENTS 가 붙음
+-export const PAGE_RAW = ["screenPageViews", "activeUsers", "sessions", "engagementRate", "bounceRate", "userEngagementDuration"];
+-export const RAW = [...PAGE_RAW, ...LANDING_EVENTS, "login_click"];
++//   PAGE_RAW: 페이지 경로(pagePath) 기준 — 이 페이지가 얼마나 보였나
++//   LP_RAW  : 방문 페이지(landingPage) 기준 — 이 페이지로 들어온 세션의 참여·이탈 (GA4 API 이름은 LP_API)
++//   그 뒤에 방문 페이지 기준 이벤트 수, 로그인 버튼 클릭이 붙음
++export const PAGE_RAW = ["screenPageViews", "activeUsers", "sessions", "userEngagementDuration"];
++export const LP_RAW = ["lp_sessions", "engagementRate", "bounceRate"];
++export const LP_API = ["sessions", "engagementRate", "bounceRate"];
++export const RAW = [...PAGE_RAW, ...LP_RAW, ...LANDING_EVENTS, "login_click"];
+ 
+ // 로그인 버튼 클릭 조건
+ export const CLICK_EVENT = "cta_id_click";
+ export const DEFAULT_LOGIN_LABEL = "gnb_login";
+ export const LABEL_DIM_NAME = "Label";   // GA4 맞춤 측정기준 이름 (속성마다 API 이름을 자동으로 찾음)
+-export const RATES = ["engagementRate", "bounceRate"];
++export const RATES = ["engagementRate", "bounceRate"];   // 합칠 때 lp_sessions 로 가중 평균
++export const RATE_WEIGHT = "lp_sessions";
+ 
+ export const LOOKBACK_DAYS = 570;   // 6개월 + 전년 같은 6개월까지
+ export const DATA_LAG_DAYS = 2;     // GA4 데이터 확정 지연 → 2일 전까지
+diff --git a/site/index.html b/site/index.html
+index f156122..e447283 100644
+--- a/site/index.html
++++ b/site/index.html
+@@ -373,6 +373,7 @@ function series(page, ch) {
+ }
+ // 세션 가중 평균으로 합쳐야 하는 비율 값 (지표 정의에서 자동으로)
+ const RATES_OF = () => Object.entries(DATA.metrics).filter(([, m]) => m.agg === "weighted").map(([k]) => k);
++const weightOf = (k) => IDX[DATA.metrics[k].weight || "sessions"];
+ /** 여러 채널을 하루 단위로 합침 (합계는 더하고, 비율은 세션 가중 평균) */
+ function combine(list) {
+   const base = list[0], RATES = RATES_OF();
+@@ -380,9 +381,9 @@ function combine(list) {
+     const out = [r[0], ...ZERO()];
+     list.forEach((rows) => DATA.raw.forEach((k, j) => {
+       const v = rows[i][j + 1];
+-      out[j + 1] += RATES.includes(k) ? v * rows[i][IDX.sessions] : v;
++      out[j + 1] += RATES.includes(k) ? v * rows[i][weightOf(k)] : v;
+     }));
+-    RATES.forEach((k) => { out[IDX[k]] = out[IDX.sessions] ? out[IDX[k]] / out[IDX.sessions] : 0; });
++    RATES.forEach((k) => { const w = out[weightOf(k)]; out[IDX[k]] = w ? out[IDX[k]] / w : 0; });
+     return out;
+   });
+ }
+@@ -416,8 +417,9 @@ function aggregate(rows, key, agg = "avg") {
+   const m = DATA.metrics[key], v = (r, k) => r[IDX[k]];
+   if (m.agg === "avg") return rows.reduce((a, r) => a + v(r, key), 0) / (agg === "sum" ? 1 : rows.length);
+   if (m.agg === "weighted") {
+-    const s = rows.reduce((a, r) => a + v(r, "sessions"), 0);
+-    return s ? rows.reduce((a, r) => a + v(r, key) * v(r, "sessions"), 0) / s : 0;
++    const w = m.weight || "sessions";   // 참여율·이탈률은 방문 페이지 세션(lp_sessions)으로 가중
++    const s = rows.reduce((a, r) => a + v(r, w), 0);
++    return s ? rows.reduce((a, r) => a + v(r, key) * v(r, w), 0) / s : 0;
+   }
+   const den = rows.reduce((a, r) => a + v(r, m.den), 0);
+   return den ? rows.reduce((a, r) => a + v(r, m.num), 0) / den : 0;
+-- 
+2.43.0
+
