@@ -3,7 +3,7 @@
 //   action: "addPage"    page: {product, name, urls[], match, releases[{date, note}], note}
 //   action: "updatePage" id, page: {...}
 //   action: "deletePage" id
-import { loadConfig, saveConfig, validatePage, withPaths, newId, metricSet } from "./_lib/config.js";
+import { loadConfig, saveConfig, validatePage, withPaths, newId, metricSet, mainCtasFor } from "./_lib/config.js";
 import { dataThrough, LOOKBACK_DAYS, addDays, DEFAULT_LOGIN_LABEL } from "./_lib/metrics.js";
 import { storeKind, del } from "./_lib/store.js";
 import { hasGA4 } from "./_lib/ga4.js";
@@ -31,6 +31,7 @@ export default async function handler(req, res) {
     if (body.action === "addPage") {
       if (cfg.pages.length >= 300) throw new Error("페이지는 300개까지 등록할 수 있어요.");
       const page = { id: newId(), ...validatePage(body.page || {}, cfg), createdBy: who, createdAt: new Date().toISOString() };
+      if (!page.ctas.length) page.ctas = mainCtasFor(cfg, page) || [];   // 새 메인 페이지엔 제품 메인 버튼 자동 추가
       cfg.pages.push(page);
       await saveConfig(cfg, who);
       return send(res, 200, { ...view(cfg), savedId: page.id });

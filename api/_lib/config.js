@@ -29,7 +29,20 @@ export async function loadConfig() {
     const cur = cfg.pages.find((x) => x.id === p.id);
     if (cur && p.ctas && cur.ctas === undefined) cur.ctas = p.ctas;
   }
+  // 버튼 설정이 아직 없는 메인 페이지에는 제품의 메인 버튼(mainCtas)을 채움
+  for (const p of cfg.pages) if (p.ctas === undefined) { const d = mainCtasFor(cfg, p); if (d) p.ctas = d; }
   return cfg;
+}
+
+/** 메인 페이지 = 정확히 일치이고 모든 주소가 "/" 또는 "/ko/" 같은 언어 첫 화면 */
+export function isMainPage(page) {
+  const paths = (page.urls || []).map(normalizePath).filter(Boolean);
+  return page.match !== "prefix" && paths.length > 0 && paths.every((x) => /^\/(?:[a-z]{2}(?:[-_][a-z]{2})?\/?)?$/i.test(x));
+}
+/** 그 페이지가 메인이면 제품의 기본 메인 버튼 목록 (복사본), 아니면 null */
+export function mainCtasFor(cfg, page) {
+  const prod = cfg.products.find((x) => x.id === page.product);
+  return prod && prod.mainCtas && isMainPage(page) ? prod.mainCtas.map((c) => ({ ...c })) : null;
 }
 
 export async function saveConfig(cfg, who) {

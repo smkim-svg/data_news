@@ -1,11 +1,16 @@
 // 저장소가 비어 있을 때 처음 한 번 넣는 기본 설정 (이후에는 화면에서 추가·수정)
 export const SEED = {
   products: [
-    { id: "remoteview", name: "리모트뷰", propertyId: "307717617" },
+    // mainCtas: 메인 페이지(/, /ko/ 같은 언어 첫 화면)에 자동으로 붙는 추가 버튼 클릭 (cta_id_click 의 Label)
+    { id: "remoteview", name: "리모트뷰", propertyId: "307717617",
+      mainCtas: [{ label: "main_hero_inquiry", name: "문의하기 버튼" }, { label: "main_hero_trial", name: "무료로 이용하기 버튼" }] },
     { id: "remotemeeting", name: "리모트미팅", propertyId: "543595202" },
-    { id: "airepoto", name: "AI레포토", propertyId: "477959686" },
-    { id: "remotecall", name: "리모트콜", propertyId: "270301647", loginLabel: "gnb_cta_webviewer" },
-    { id: "remotevs", name: "RemoteVS", propertyId: "368872087" },
+    { id: "airepoto", name: "AI레포토", propertyId: "477959686",
+      mainCtas: [{ label: "main_hero_inquiry", name: "문의하기 버튼" }] },
+    { id: "remotecall", name: "리모트콜", propertyId: "270301647", loginLabel: "gnb_cta_webviewer",
+      mainCtas: [{ label: "main_hero_inquiry", name: "문의하기 버튼" }, { label: "main_hero_trial", name: "무료로 이용하기 버튼" }] },
+    { id: "remotevs", name: "RemoteVS", propertyId: "368872087",
+      mainCtas: [{ label: "main_hero_solution", name: "솔루션 살펴보기 버튼" }, { label: "main_hero_inquiry", name: "문의하기 버튼" }] },
   ],
   pages: [
     { id: "rv-main", product: "remoteview", name: "메인", urls: ["https://content.rview.com/ko/"], match: "exact", releases: [{ date: "2026-06-04" }],
