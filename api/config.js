@@ -3,16 +3,16 @@
 //   action: "addPage"    page: {product, name, urls[], match, releases[{date, note}], note}
 //   action: "updatePage" id, page: {...}
 //   action: "deletePage" id
-import { loadConfig, saveConfig, validatePage, withPaths, newId } from "./_lib/config.js";
-import { METRICS, RAW, dataThrough, LOOKBACK_DAYS, addDays, DEFAULT_LOGIN_LABEL } from "./_lib/metrics.js";
+import { loadConfig, saveConfig, validatePage, withPaths, newId, metricSet } from "./_lib/config.js";
+import { dataThrough, LOOKBACK_DAYS, addDays, DEFAULT_LOGIN_LABEL } from "./_lib/metrics.js";
 import { storeKind, del } from "./_lib/store.js";
 import { hasGA4 } from "./_lib/ga4.js";
 import { userEmail, readBody, send } from "./_lib/http.js";
 
 function view(cfg) {
-  const end = dataThrough();
+  const end = dataThrough(), { metrics, raw } = metricSet(cfg);
   return {
-    version: 6, metrics: METRICS, raw: RAW, dataThrough: end, dataFrom: addDays(end, -LOOKBACK_DAYS),
+    version: 7, metrics, raw, dataThrough: end, dataFrom: addDays(end, -LOOKBACK_DAYS),
     products: cfg.products.map(({ id, name, loginLabel }) => ({ id, name, loginLabel: loginLabel || DEFAULT_LOGIN_LABEL })),
     pages: cfg.pages.map(withPaths),
     updatedAt: cfg.updatedAt, updatedBy: cfg.updatedBy,

@@ -31,6 +31,14 @@ export const DEFAULT_LOGIN_LABEL = "gnb_login";
 export const LABEL_DIM_NAME = "Label";   // GA4 맞춤 측정기준 이름 (속성마다 API 이름을 자동으로 찾음)
 export const RATES = ["engagementRate", "bounceRate"];
 
+// 페이지별 추가 버튼 클릭: 페이지 설정의 ctas [{label, name}] 마다 지표 하나 (키 = "cta:라벨")
+export const CTA_PREFIX = "cta:";
+export const CTA_LABEL_RE = /^[A-Za-z0-9_.\-]{1,100}$/;   // GA4 Label 값으로 쓸 수 있는 글자만
+export const ctaKey = (label) => CTA_PREFIX + label;
+export function ctaMetric(name, label) {
+  return { label: `${name} 클릭 (일평균)`, agg: "avg", fmt: "cnt", hint: "페이지 기준 · cta_id_click", cta: label };
+}
+
 export const LOOKBACK_DAYS = 570;   // 6개월 + 전년 같은 6개월까지
 export const DATA_LAG_DAYS = 2;     // GA4 데이터 확정 지연 → 2일 전까지
 

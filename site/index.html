@@ -114,7 +114,7 @@
   .tile[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
   .tile-main:focus-visible, .ch tbody tr:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .tile .k { color: var(--muted); font-size: 12px; }
-  .tile .hint { white-space: nowrap; display: inline-block; font-size: 10px; background: var(--badge); border-radius: 4px; padding: 0 4px; margin-left: 2px; }
+  .tile .hint { white-space: normal; overflow-wrap: anywhere; display: inline-block; max-width: 100%; font-size: 10px; background: var(--badge); border-radius: 4px; padding: 0 4px; margin-left: 2px; }
   .tile .v { font-size: 22px; font-weight: 650; margin: 2px 0 4px; font-variant-numeric: tabular-nums; }
   .tile .ba { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; margin-left: 6px; }
   .delta { display: inline-block; padding: 1px 7px; border-radius: 6px; font-weight: 600; font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -350,6 +350,8 @@
       <button type="button" class="linkbtn" id="ed-add-date">+ 배포일 추가</button>
     </fieldset>
     <label>메모 <span class="sub">(선택)</span><input id="ed-note" maxlength="200" placeholder="예: 히어로 문구·CTA 변경"></label>
+    <label>추가로 셀 버튼 클릭 <span class="sub">(선택) cta_id_click 의 Label. 한 줄에 하나씩 "라벨 = 버튼 이름"</span>
+      <textarea id="ed-ctas" rows="2" placeholder="main_hero_inquiry = 문의하기 버튼"></textarea></label>
     <div class="ed-error error" id="ed-error" hidden></div>
     <div class="ed-actions">
       <button type="button" class="btn btn-danger" id="ed-delete" hidden>삭제</button>
@@ -567,18 +569,40 @@ function ensureTotals(R) {
     .catch((e) => TOT.set(key, { error: e.message }))
     .finally(() => { if (AGG === "sum" && SEL && totKey(range()) === key) renderDetail(); });
 }
+/** 이 페이지의 추가 버튼 [{label, name}] (사이트 전체는 그 제품 모든 페이지의 버튼) */
+function ctasOf(pg) {
+  if (!pg) return [];
+  if (!pg.site) return pg.ctas || [];
+  const seen = new Set();
+  return P.pages.flatMap((x) => x.ctas || []).filter((c) => !seen.has(c.label) && seen.add(c.label));
+}
+/** 지금 페이지에서 보여줄 지표 키 (추가 버튼 지표는 그 버튼이 설정된 페이지에서만) */
+function visibleKeys() {
+  const mine = new Set(ctasOf(SEL).map((c) => c.label));
+  return Object.keys(DATA.metrics).filter((k) => !DATA.metrics[k].cta || mine.has(DATA.metrics[k].cta));
+}
+/** 지표 선택 상자를 지금 페이지에 맞게 다시 채움 */
+function syncMetricSelect() {
+  const keys = visibleKeys();
+  if (!keys.includes(METRIC)) METRIC = PRIMARY;
+  const sel = $("metric"), html = keys.map((k) => `<option value="${k}">${esc(metricLabel(k))}</option>`).join("");
+  if (sel.dataset.html !== html) { sel.innerHTML = html; sel.dataset.html = html; }
+  sel.value = METRIC;
+}
 /** 카드 보조 설명 (로그인 클릭은 제품별 Label 값을 보여줌) */
 function hintOf(k) {
   const m = DATA.metrics[k];
   if (k === "login_click") return `${SEL && SEL.site ? "사이트 전체" : "페이지 기준"} · Label=${P.loginLabel || "gnb_login"}`;
+  if (m.cta) return `${SEL && SEL.site ? "사이트 전체" : "페이지 기준"} · Label=${m.cta}`;
   if (m.hint && SEL && SEL.site && m.hint === "방문 페이지 기준") return "사이트 전체";
   return m.hint || "";
 }
 /** 지표 이름 (기간 합계 모드면 "(일평균)" 대신 합계 표시) */
 function metricLabel(k) {
-  const m = DATA.metrics[k];
-  if (AGG !== "sum" || m.agg !== "avg") return m.label;
-  return m.label.replace("(일평균)", k === "activeUsers" ? "(기간 순 사용자)" : "(기간 합계)");
+  const m = DATA.metrics[k], c = m.cta && ctasOf(SEL).find((x) => x.label === m.cta);
+  const label = c ? `${c.name} 클릭 (일평균)` : m.label;   // 같은 라벨이라도 페이지에서 붙인 이름으로
+  if (AGG !== "sum" || m.agg !== "avg") return label;
+  return label.replace("(일평균)", k === "activeUsers" ? "(기간 순 사용자)" : "(기간 합계)");
 }
 /** 선택 기간 vs 비교 기간. series 를 주면 기간 합계 모드에서 사용자를 순 사용자로 */
 function compare(rows, key, R = range(), series = null, agg = AGG) {
@@ -639,7 +663,8 @@ async function api(path, body) {
 }
 /** /api/config 응답을 화면용 구조로 (이미 받은 데이터는 유지) */
 function applyConfig(cfg) {
-  const old = new Map((DATA?.products || []).flatMap((p) => p.pages).map((pg) => [pg.key, pg]));
+  const sameRaw = DATA && JSON.stringify(DATA.raw) === JSON.stringify(cfg.raw);   // 열 구성이 바뀌면 다시 불러옴
+  const old = new Map(sameRaw ? (DATA?.products || []).flatMap((p) => p.pages).map((pg) => [pg.key, pg]) : []);
   DATA = { ...cfg, products: cfg.products.map((p) => ({ ...p, pages: [] })) };
   IDX = Object.fromEntries(cfg.raw.map((k, i) => [k, i + 1]));
   for (const pg of cfg.pages) {
@@ -647,7 +672,7 @@ function applyConfig(cfg) {
     if (!prod) continue;
     const dates = pg.releases.map((r) => r.date).sort();
     const prev = old.get(pg.id);
-    const same = prev && JSON.stringify([prev.paths, prev.match, prev.releases[0]?.date]) === JSON.stringify([pg.paths, pg.match, pg.releases[0]?.date]);
+    const same = prev && JSON.stringify([prev.paths, prev.match, prev.releases[0]?.date, prev.ctas || []]) === JSON.stringify([pg.paths, pg.match, pg.releases[0]?.date, pg.ctas || []]);
     prod.pages.push({ ...pg, key: pg.id, date: dates.at(-1), dates,
       ...(same ? { daily: prev.daily, channels: prev.channels, channelGroup: prev.channelGroup, error: prev.error } : {}) });
   }
@@ -766,7 +791,7 @@ function renderDetail() {
   queueMicrotask(renderAi);   // AI 분석 패널: 기간·페이지가 바뀌면 안내 갱신
   $("detail").hidden = !SEL;
   if (!SEL) return;
-  fixPeriod();
+  fixPeriod(); syncMetricSelect();
   const r = SEL, R = range();
   const since = r.date ? diffDays(r.date, DATA.dataThrough) : -1;
   $("rel-date").textContent = (!r.dates.length ? "등록된 배포일 없음"
@@ -795,7 +820,7 @@ function renderDetail() {
   const groups = channelGroups(P);
   ensureTotals(R);
   document.querySelectorAll("#aggs button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.agg === AGG)));
-  $("kpis").innerHTML = Object.entries(DATA.metrics).map(([k, m]) => {
+  $("kpis").innerHTML = visibleKeys().map((k) => [k, DATA.metrics[k]]).map(([k, m]) => {
     const c = compare(r.daily, k, R, "__all");
     const sub = c.state === "loading" ? `<span class="ba" style="margin:0"><span class="spin"></span> GA4에서 순 사용자 계산 중…</span>`
       : c.state === "short" ? `<span class="ba" style="margin:0">비교 기간 데이터 없음</span>`
@@ -826,8 +851,8 @@ function renderDetail() {
 }
 
 function syncFoldAll() {
-  const n = Object.keys(DATA.metrics).length;
-  $("fold-all").textContent = OPEN.size === n ? "채널별 모두 접기" : "채널별 모두 펼치기";
+  const n = visibleKeys().length;
+  $("fold-all").textContent = visibleKeys().every((k) => OPEN.has(k)) ? "채널별 모두 접기" : "채널별 모두 펼치기";
   $("fold-all").hidden = !channelGroups(P).length;
 }
 function setMetric(k, scroll) {
@@ -897,7 +922,7 @@ function drawChart(R) {
       borderColor: css("--cmp"), backgroundColor: css("--cmp"), borderWidth: 1.5, borderDash: [5, 4], pointRadius: 0, pointHoverRadius: 4,
       tension: 0.25, spanGaps: true, order: 2 });
   }
-  $("chart-title").textContent = `${meta.label} · 일별 추이`;
+  $("chart-title").textContent = `${metricLabel(METRIC)} · 일별 추이`;
   $("chart-sub").textContent = !shown.length ? "표시할 채널을 하나 이상 켜 주세요"
     : single ? `${shown[0].name} · 비교 기간과 함께 보는 중` : `채널 ${shown.length}개 표시 중 · 채널을 하나만 켜면 비교 기간 점선이 함께 나와요`;
   $("lg-cur").textContent = `${R.label} (${ymd(R.from)}~${ymd(R.to)})`;
@@ -1011,6 +1036,7 @@ function openEditor(page) {
   $("ed-urls").value = page ? (page.urls || []).join("\n") : "";
   $("ed-prefix").checked = page ? page.match === "prefix" : false;
   $("ed-note").value = page?.note || "";
+  $("ed-ctas").value = (page?.ctas || []).map((c) => `${c.label} = ${c.name}`).join("\n");
   $("ed-dates").innerHTML = "";
   (page ? page.releases : [{ date: "" }]).forEach((r) => dateRow(r.date, r.note));
   if (page) dateRow("").querySelector("input").focus();   // 편집할 땐 새 배포일 칸을 하나 열어 둠
@@ -1025,6 +1051,7 @@ function editorValue() {
     product: $("ed-product").value, name: $("ed-name").value.trim(),
     urls: $("ed-urls").value.split(/\n/).map((s) => s.trim()).filter(Boolean),
     match: $("ed-prefix").checked ? "prefix" : "exact", note: $("ed-note").value.trim(),
+    ctas: $("ed-ctas").value.split(/\n/).map((l) => { const [label, ...n] = l.split("="); return { label: label.trim(), name: n.join("=").trim() }; }).filter((c) => c.label),
     releases: [...$("ed-dates").querySelectorAll(".date-row")].map((r) => ({ date: r.querySelector("input[type=date]").value, note: r.querySelector("input[type=text]").value.trim() })).filter((r) => r.date),
   };
 }
@@ -1097,7 +1124,7 @@ const AI_GUIDE = `당신은 Google Analytics 4(GA4) 데이터를 읽어 주는 �
   · 활성 사용자는 사람이 아니라 기기·브라우저 기준이라 실제보다 많게 잡힐 수 있음.
   · 참여율·이탈률·세션은 "이 페이지를 본 세션" 기준. GA4 에서 참여율·이탈률은 원래 세션 단위라 페이지 단위로는 참고용.
   · nf_submit, trial_step3_activate_gtm 은 이 페이지로 처음 들어온(방문 페이지) 세션에서 생긴 횟수.
-  · 로그인 버튼 클릭은 이 페이지에서 일어난 cta_id_click 중 지정 Label.
+  · 로그인 버튼 클릭과 "○○ 버튼 클릭" 지표는 이 페이지에서 일어난 cta_id_click 중 지정 Label(scope 에 표시).
   · 데이터는 2일 전까지(확정 지연). 쿠키 동의 거부·광고 차단 사용자는 빠지므로 절대 수치는 하한값.
 - 질문이 있으면 그 답을 최우선으로. 데이터로 답할 수 없으면 그렇다고 말하고 확인 방법을 제안.`;
 // 리포트 구조·주의사항: MrBridgeHQ/ga4-analyst-claude analysis-playbook 참고 (MIT, Copyright (c) 2026 Mr Bridge)
@@ -1108,10 +1135,10 @@ function aiCmp(rows, k, R, series) {
   return { cur: rnd(c.cur, m.fmt), cmp: rnd(c.prev, m.fmt), changePct: c.delta == null ? null : +c.delta.toFixed(1), ...(c.state !== "ok" ? { state: c.state } : {}) };
 }
 function aiContext() {
-  const r = SEL, R = range(), groups = channelGroups(P), keys = Object.keys(DATA.metrics);
+  const r = SEL, R = range(), groups = channelGroups(P), keys = visibleKeys();
   const metrics = keys.map((k) => ({ key: k, label: metricLabel(k), unit: DATA.metrics[k].fmt === "pct" ? "%" : DATA.metrics[k].fmt === "sec" ? "초" : "",
     ...(hintOf(k) ? { scope: hintOf(k) } : {}), ...(DATA.metrics[k].lowerIsBetter ? { lowerIsBetter: true } : {}), ...aiCmp(r.daily, k, R, "__all") }));
-  const CH_KEYS = ["sessions", "activeUsers", "engagementRate", "nf_submit", "trial_step3_activate_gtm", "login_click"].filter((k) => DATA.metrics[k]);
+  const CH_KEYS = ["sessions", "activeUsers", "engagementRate", "nf_submit", "trial_step3_activate_gtm", "login_click", ...keys.filter((k) => DATA.metrics[k].cta)].filter((k) => DATA.metrics[k]);
   const channels = groups.map((g) => ({ channel: g.name, ...(CH_KO[g.key] ? { ko: CH_KO[g.key] } : {}),
     ...Object.fromEntries(CH_KEYS.map((k) => { const c = aiCmp(seriesRows(r, g.key), k, R, g.key); return [k, [c.cur, c.cmp, c.changePct]]; })) }));
   // 일별 추이: 비교 기간 시작 ~ 선택 기간 끝 (120일 넘으면 주별 일평균)
@@ -1235,17 +1262,16 @@ function openAi() {
 // ---------- 시작
 api("/api/config")
   .then((cfg) => {
-    if (cfg.version !== 6) throw new Error("화면과 서버 버전이 맞지 않아요. 새로고침해 주세요.");
+    if (cfg.version !== 7) throw new Error("화면과 서버 버전이 맞지 않아요. 새로고침해 주세요.");
     applyConfig(cfg);
     const sel = $("metric");
-    sel.innerHTML = Object.entries(DATA.metrics).map(([k, m]) => `<option value="${k}">${esc(m.label)}</option>`).join("");
     sel.onchange = () => setMetric(sel.value);
     document.querySelectorAll("#units button").forEach((b) => b.onclick = () => setUnit(b.dataset.unit));
     document.querySelectorAll("#modes button").forEach((b) => b.onclick = () => setMode(b.dataset.mode));
     document.querySelectorAll("#aggs button").forEach((b) => b.onclick = () => setAgg(b.dataset.agg));
     $("block").addEventListener("change", (e) => setBlock(e.target.value));
     $("fold-all").onclick = () => {
-      const keys = Object.keys(DATA.metrics), openAll = OPEN.size !== keys.length;
+      const keys = visibleKeys(), openAll = !keys.every((k) => OPEN.has(k));
       OPEN.clear(); if (openAll) keys.forEach((k) => OPEN.add(k));
       $("kpis").querySelectorAll(".tile-ch").forEach((d) => { d.open = openAll; });
       syncFoldAll();

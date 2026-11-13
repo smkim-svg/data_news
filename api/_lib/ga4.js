@@ -2,7 +2,7 @@
 //   필요한 Vercel 환경 변수: GA4_SA_KEY = 서비스 계정 JSON 전체 내용
 import crypto from "node:crypto";
 import { RAW, PAGE_RAW, RATES, LANDING_EVENTS, LOOKBACK_DAYS, addDays, dataThrough,
-  CLICK_EVENT, DEFAULT_LOGIN_LABEL, LABEL_DIM_NAME } from "./metrics.js";
+  CLICK_EVENT, DEFAULT_LOGIN_LABEL, LABEL_DIM_NAME, ctaKey } from "./metrics.js";
 import { getJSON, setJSON } from "./store.js";
 
 const API = "https://analyticsdata.googleapis.com/v1beta";
@@ -134,12 +134,13 @@ async function report(propertyId, start, end, filter, dims, metrics = PAGE_RAW) 
 function dateList(start, end) { const out = []; for (let d = start; d <= end; d = addDays(d, 1)) out.push(d); return out; }
 const round = (v) => Math.round(v * 10000) / 10000;
 
-export async function fetchPageData(product, page) {
+//   raw: 화면 전체의 원본 열 순서 (기본 RAW + 모든 페이지의 추가 버튼 열)
+export async function fetchPageData(product, page, raw = RAW) {
   const end = dataThrough();
   const firstRelease = page.releases.map((r) => r.date).sort()[0] || end;
   const start = [addDays(firstRelease, -30), addDays(end, -LOOKBACK_DAYS)].sort()[0];
   const dates = dateList(start, end);
-  const zero = RAW.map(() => 0);
+  const zero = raw.map(() => 0);
   let total, byCh, groupName;
   const warnings = [];
   if (hasGA4()) {
@@ -147,26 +148,28 @@ export async function fetchPageData(product, page) {
     groupName = dim.name;
     const pid = product.propertyId;
     const pf = page.paths.length ? pageFilter(page.paths, page.match) : undefined, ef = landingEventFilter(page.paths, page.match);
-    // 로그인 버튼 클릭: 이 페이지(pagePath)에서 cta_id_click 이고 Label = 제품 로그인 라벨
-    const label = product.loginLabel || DEFAULT_LOGIN_LABEL;
+    // 버튼 클릭: 이 페이지(pagePath)에서 cta_id_click 이고 Label = 제품 로그인 라벨 또는 이 페이지의 추가 버튼 라벨
+    const colsOf = new Map();   // Label 값 → 더할 열 번호들
+    const addCol = (lab, key) => { const i = raw.indexOf(key); if (i >= 0) colsOf.set(lab, [...(colsOf.get(lab) || []), i]); };
+    addCol(product.loginLabel || DEFAULT_LOGIN_LABEL, "login_click");
+    for (const c of page.ctas || []) addCol(c.label, ctaKey(c.label));
     const cf = meta.label ? { andGroup: { expressions: [
       ...(pf ? [pf] : []),
       { filter: { fieldName: "eventName", stringFilter: { matchType: "EXACT", value: CLICK_EVENT } } },
-      { filter: { fieldName: meta.label, stringFilter: { matchType: "EXACT", value: label } } },
+      { filter: { fieldName: meta.label, inListFilter: { values: [...colsOf.keys()] } } },
     ] } } : null;
-    if (!meta.label) warnings.push(`이 속성에서 "${LABEL_DIM_NAME}" 맞춤 측정기준을 찾지 못해 로그인 버튼 클릭은 0으로 보여요.`);
+    if (!meta.label) warnings.push(`이 속성에서 "${LABEL_DIM_NAME}" 맞춤 측정기준을 찾지 못해 버튼 클릭은 0으로 보여요.`);
     const [t, c, et, ec, ct, cc] = await pool([
       () => report(pid, start, end, pf, ["date"]),
       () => report(pid, start, end, pf, ["date", dim.api]),
       () => report(pid, start, end, ef, ["date", "eventName"], ["eventCount"]),
       () => report(pid, start, end, ef, ["date", dim.api, "eventName"], ["eventCount"]),
-      () => (cf ? report(pid, start, end, cf, ["date"], ["eventCount"]) : []),
-      () => (cf ? report(pid, start, end, cf, ["date", dim.api], ["eventCount"]) : []),
+      () => (cf ? report(pid, start, end, cf, ["date", meta.label], ["eventCount"]) : []),
+      () => (cf ? report(pid, start, end, cf, ["date", dim.api, meta.label], ["eventCount"]) : []),
     ]);
     // 페이지 지표 + 방문 페이지 기준 이벤트 수를 RAW 순서로 합침
     const evAt = (ev) => PAGE_RAW.length + LANDING_EVENTS.indexOf(ev);
-    const pad = (v) => [...v, ...RAW.slice(PAGE_RAW.length).map(() => 0)];
-    const clickAt = RAW.indexOf("login_click");
+    const pad = (v) => [...v, ...raw.slice(PAGE_RAW.length).map(() => 0)];
     total = Object.fromEntries(t.map((r) => [r.date, pad(r.vals)]));
     for (const r of et) { const i = evAt(r.dims[0]); if (i >= PAGE_RAW.length) (total[r.date] ||= zero.slice())[i] += r.vals[0]; }
     byCh = {};
@@ -175,10 +178,10 @@ export async function fetchPageData(product, page) {
       const i = evAt(r.dims[1]); if (i < PAGE_RAW.length) continue;
       ((byCh[r.dims[0] || "(not set)"] ||= {})[r.date] ||= zero.slice())[i] += r.vals[0];
     }
-    for (const r of ct) (total[r.date] ||= zero.slice())[clickAt] += r.vals[0];
-    for (const r of cc) ((byCh[r.dims[0] || "(not set)"] ||= {})[r.date] ||= zero.slice())[clickAt] += r.vals[0];
+    for (const r of ct) for (const i of colsOf.get(r.dims[0]) || []) (total[r.date] ||= zero.slice())[i] += r.vals[0];
+    for (const r of cc) for (const i of colsOf.get(r.dims[1]) || []) ((byCh[r.dims[0] || "(not set)"] ||= {})[r.date] ||= zero.slice())[i] += r.vals[0];
   } else {
-    ({ total, byCh } = demoData(dates, page));
+    ({ total, byCh } = demoData(dates, page, raw));
     groupName = "맞춤 채널 그룹 (데모)";
   }
   const daily = dates.map((d) => [d, ...(total[d] || zero).map(round)]);
@@ -228,7 +231,7 @@ export async function fetchRangeUsers(product, page, ranges) {
 }
 
 // ---------- GA4 키가 없을 때(로컬 확인용) 가짜 데이터
-function demoData(dates, page) {
+function demoData(dates, page, raw = RAW) {
   let seed = [...page.id].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7);
   const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 2 ** 32);
   const CH = { "검색(SEO)": 0.38, "직접 유입": 0.22, "검색광고": 0.14, "디스플레이 광고": 0.08, "파트너 사이트": 0.07, "블로그·커뮤니티": 0.05, "뉴스레터": 0.04, "기타": 0.02 };
@@ -237,16 +240,17 @@ function demoData(dates, page) {
   for (const d of dates) {
     const dow = new Date(d + "T00:00:00Z").getUTCDay();
     const k = (d >= launch ? 1.1 : 1) * (dow === 0 || dow === 6 ? 0.75 : 1) * (0.9 + rnd() * 0.2);
-    const day = RAW.map(() => 0);
+    const day = raw.map(() => 0);
     for (const [ch, share] of Object.entries(CH)) {
       const q = k * (0.8 + rnd() * 0.4), users = base * share * q, sessions = users * 1.2;
       const er = Math.min(0.95, (ch === "직접 유입" ? 0.65 : 0.5) * q ** 0.2);
       const v = [Math.round(users * 1.6), Math.round(users), Math.round(sessions), er, 1 - er, users * 70 * q ** 0.5,
         rnd() < sessions * 0.004 * q ? Math.ceil(rnd() * 2) : 0, rnd() < sessions * 0.002 * q ? 1 : 0, Math.round(sessions * 0.05 * q * rnd())];
+      raw.slice(v.length).forEach(() => v.push(Math.round(sessions * 0.01 * q * rnd())));   // 추가 버튼 클릭 (데모)
       byCh[ch][d] = v;
-      RAW.forEach((n, i) => { day[i] += RATES.includes(n) ? v[i] * v[2] : v[i]; });   // v[2] = sessions
+      raw.forEach((n, i) => { day[i] += RATES.includes(n) ? v[i] * v[2] : v[i]; });   // v[2] = sessions
     }
-    RAW.forEach((n, i) => { if (RATES.includes(n)) day[i] = day[2] ? day[i] / day[2] : 0; });
+    raw.forEach((n, i) => { if (RATES.includes(n)) day[i] = day[2] ? day[i] / day[2] : 0; });
     total[d] = day;
   }
   return { total, byCh };

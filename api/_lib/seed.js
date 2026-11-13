@@ -8,7 +8,8 @@ export const SEED = {
     { id: "remotevs", name: "RemoteVS", propertyId: "368872087" },
   ],
   pages: [
-    { id: "rv-main", product: "remoteview", name: "메인", urls: ["https://content.rview.com/ko/"], match: "exact", releases: [{ date: "2026-06-04" }] },
+    { id: "rv-main", product: "remoteview", name: "메인", urls: ["https://content.rview.com/ko/"], match: "exact", releases: [{ date: "2026-06-04" }],
+      ctas: [{ label: "main_hero_inquiry", name: "문의하기 버튼" }, { label: "main_hero_trial", name: "무료로 이용하기 버튼" }] },
     { id: "rm-main", product: "remotemeeting", name: "메인", urls: ["https://www.remotemeeting.com/ko/"], match: "exact", releases: [{ date: "2026-06-30" }] },
     { id: "rm-features", product: "remotemeeting", name: "특장점", urls: ["https://www.remotemeeting.com/ko/features/"], match: "exact", releases: [{ date: "2026-06-30" }] },
     { id: "ai-sdk", product: "airepoto", name: "SDK 페이지", urls: ["https://www.airepoto.com/ko/sdk/"], match: "exact", releases: [{ date: "2026-09-21" }] },

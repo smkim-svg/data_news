@@ -3,7 +3,7 @@ import crypto from "node:crypto";
 import { getJSON, setJSON } from "./store.js";
 import { SEED } from "./seed.js";
 import { normalizePath } from "./ga4.js";
-import { isIsoDate } from "./metrics.js";
+import { isIsoDate, METRICS, RAW, CTA_LABEL_RE, ctaKey, ctaMetric } from "./metrics.js";
 
 const KEY = "config:v1";
 
@@ -23,6 +23,11 @@ export async function loadConfig() {
     const cur = cfg.products.find((x) => x.id === p.id);
     if (!cur) cfg.products.push(p);
     else for (const [k, v] of Object.entries(p)) if (cur[k] === undefined) cur[k] = v;   // 나중에 추가된 설정값 채우기
+  }
+  // 기본 페이지에 나중에 추가된 버튼 클릭 설정 채우기 (화면에서 한 번이라도 저장했으면 그 값 유지)
+  for (const p of SEED.pages) {
+    const cur = cfg.pages.find((x) => x.id === p.id);
+    if (cur && p.ctas && cur.ctas === undefined) cur.ctas = p.ctas;
   }
   return cfg;
 }
@@ -57,7 +62,18 @@ export function validatePage(input, cfg) {
   const badDate = releases.find((r) => !isIsoDate(r.date));
   if (badDate) throw new Error(`배포일 형식이 올바르지 않습니다: ${badDate.date}`);
   releases.sort((a, b) => a.date.localeCompare(b.date));
-  return { product: product.id, name, urls, match, releases, note: clean(input.note, 200) };
+  // 추가로 셀 버튼 클릭 (cta_id_click 의 Label): [{label, name}] 또는 "라벨 = 이름" 줄
+  const rawCtas = Array.isArray(input.ctas) ? input.ctas
+    : String(input.ctas || "").split(/\n/).map((l) => { const [label, ...n] = l.split("="); return { label, name: n.join("=") }; });
+  const seenCta = new Set(), ctas = [];
+  for (const c of rawCtas) {
+    const label = clean(c && c.label, 100), name = clean(c && c.name, 40) || label;
+    if (!label || seenCta.has(label)) continue;
+    if (!CTA_LABEL_RE.test(label)) throw new Error(`버튼 라벨은 영문·숫자·_ . - 만 쓸 수 있어요: ${label}`);
+    seenCta.add(label); ctas.push({ label, name });
+  }
+  if (ctas.length > 10) throw new Error("추가 버튼은 페이지당 10개까지 넣을 수 있어요.");
+  return { product: product.id, name, urls, match, releases, note: clean(input.note, 200), ctas };
 }
 
 export const newId = () => crypto.randomBytes(6).toString("base64url");
@@ -67,7 +83,22 @@ export const SITE_PREFIX = "__site:";
 export function sitePage(cfg, productId) {
   const dates = [...new Set(cfg.pages.filter((p) => p.product === productId).flatMap((p) => p.releases.map((r) => r.date)))].sort();
   return { id: SITE_PREFIX + productId, product: productId, name: "사이트 전체", urls: [], paths: [], match: "exact",
-    releases: dates.map((date) => ({ date })), site: true };
+    releases: dates.map((date) => ({ date })), site: true, ctas: productCtas(cfg, productId) };
+}
+/** 그 제품 모든 페이지의 추가 버튼 (라벨 중복 제거) */
+function productCtas(cfg, productId) {
+  const seen = new Set();
+  return cfg.pages.filter((p) => p.product === productId).flatMap((p) => p.ctas || [])
+    .filter((c) => !seen.has(c.label) && seen.add(c.label));
+}
+/** 화면 전체에서 쓰는 지표 정의·원본 열 (기본 + 모든 페이지의 추가 버튼) */
+export function metricSet(cfg) {
+  const metrics = { ...METRICS }, raw = [...RAW];
+  for (const c of cfg.pages.flatMap((p) => p.ctas || [])) {
+    const k = ctaKey(c.label);
+    if (!metrics[k]) { metrics[k] = ctaMetric(c.name, c.label); raw.push(k); }
+  }
+  return { metrics, raw };
 }
 /** id 로 페이지 찾기 (사이트 전체 포함) → { page(경로 포함), product } 또는 null */
 export function resolvePage(cfg, id) {
