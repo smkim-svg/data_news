@@ -593,14 +593,14 @@ function syncMetricSelect() {
 function hintOf(k) {
   const m = DATA.metrics[k];
   if (k === "login_click") return `${SEL && SEL.site ? "사이트 전체" : "페이지 기준"} · Label=${P.loginLabel || "gnb_login"}`;
-  if (m.cta) return `${SEL && SEL.site ? "사이트 전체" : "페이지 기준"} · Label=${m.cta}`;
+  if (m.cta) return `${SEL && SEL.site ? "사이트 전체" : "페이지 기준"} · ${m.rate ? "클릭 ÷ 활성 사용자" : `Label=${m.cta}`}`;
   if (m.hint && SEL && SEL.site && m.hint === "방문 페이지 기준") return "사이트 전체";
   return m.hint || "";
 }
 /** 지표 이름 (기간 합계 모드면 "(일평균)" 대신 합계 표시) */
 function metricLabel(k) {
   const m = DATA.metrics[k], c = m.cta && ctasOf(SEL).find((x) => x.label === m.cta);
-  const label = c ? `${c.name} 클릭 (일평균)` : m.label;   // 같은 라벨이라도 페이지에서 붙인 이름으로
+  const label = c ? (m.rate ? `${c.name} 클릭률` : `${c.name} 클릭 (일평균)`) : m.label;   // 같은 라벨이라도 페이지에서 붙인 이름으로
   if (AGG !== "sum" || m.agg !== "avg") return label;
   return label.replace("(일평균)", k === "activeUsers" ? "(기간 순 사용자)" : "(기간 합계)");
 }
@@ -1125,6 +1125,7 @@ const AI_GUIDE = `당신은 Google Analytics 4(GA4) 데이터를 읽어 주는 �
   · 참여율·이탈률·세션은 "이 페이지를 본 세션" 기준. GA4 에서 참여율·이탈률은 원래 세션 단위라 페이지 단위로는 참고용.
   · nf_submit, trial_step3_activate_gtm 은 이 페이지로 처음 들어온(방문 페이지) 세션에서 생긴 횟수.
   · 로그인 버튼 클릭과 "○○ 버튼 클릭" 지표는 이 페이지에서 일어난 cta_id_click 중 지정 Label(scope 에 표시).
+  · "○○ 버튼 클릭률" = 그 버튼 클릭 수 ÷ 활성 사용자(일별 합끼리 나눔). 한 사람이 여러 번 누르면 100%를 넘을 수 있음.
   · 데이터는 2일 전까지(확정 지연). 쿠키 동의 거부·광고 차단 사용자는 빠지므로 절대 수치는 하한값.
 - 질문이 있으면 그 답을 최우선으로. 데이터로 답할 수 없으면 그렇다고 말하고 확인 방법을 제안.`;
 // 리포트 구조·주의사항: MrBridgeHQ/ga4-analyst-claude analysis-playbook 참고 (MIT, Copyright (c) 2026 Mr Bridge)

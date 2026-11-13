@@ -3,7 +3,7 @@ import crypto from "node:crypto";
 import { getJSON, setJSON } from "./store.js";
 import { SEED } from "./seed.js";
 import { normalizePath } from "./ga4.js";
-import { isIsoDate, METRICS, RAW, CTA_LABEL_RE, ctaKey, ctaMetric } from "./metrics.js";
+import { isIsoDate, METRICS, RAW, CTA_LABEL_RE, ctaKey, ctaMetric, ctrKey, ctrMetric } from "./metrics.js";
 
 const KEY = "config:v1";
 
@@ -109,7 +109,7 @@ export function metricSet(cfg) {
   const metrics = { ...METRICS }, raw = [...RAW];
   for (const c of cfg.pages.flatMap((p) => p.ctas || [])) {
     const k = ctaKey(c.label);
-    if (!metrics[k]) { metrics[k] = ctaMetric(c.name, c.label); raw.push(k); }
+    if (!metrics[k]) { metrics[k] = ctaMetric(c.name, c.label); metrics[ctrKey(c.label)] = ctrMetric(c.name, c.label); raw.push(k); }
   }
   return { metrics, raw };
 }
